@@ -22,7 +22,6 @@ import {
   X,
   Package,
   DollarSign,
-  Layers,
 } from "lucide-react";
 import { vendorApi } from "@/api/vendorApi";
 import Pagination from "@/components/vendor/Pagination";
@@ -31,18 +30,6 @@ type SortKey = "title" | "category" | "amount" | "status" | "city";
 type SortDir = "asc" | "desc";
 
 const ITEMS_PER_PAGE = 10;
-
-interface ApiSubService {
-  id: string;
-  serviceId: string;
-  title: string;
-  description?: string;
-  amount?: number;
-  currency?: string;
-  imageUrl?: string | null;
-  status: string;
-  price?: { amount: number; currency: string };
-}
 
 interface ApiService {
   id: string;
@@ -55,10 +42,10 @@ interface ApiService {
   location?: string;
   price?: { amount: number; currency: string };
   price_min?: number;
+  price_max?: number;
   price_unit?: string;
   image_url?: string;
   status: string;
-  subServices?: ApiSubService[];
 }
 
 interface ConfirmModalProps {
@@ -75,9 +62,10 @@ interface ConfirmModalProps {
 const statusLabel = (status: string) => (status === "ACTIVE" ? "Active" : "Inactive");
 
 function formatMoney(service: ApiService) {
-  const amount = service.price?.amount ?? service.price_min ?? 0;
+  const minAmount = service.price_min ?? service.price?.amount ?? 0;
+  const maxAmount = service.price_max ?? minAmount;
   const currency = service.price?.currency ?? "AED";
-  return `${amount.toLocaleString()} ${currency}`;
+  return `${minAmount.toLocaleString()} - ${maxAmount.toLocaleString()} ${currency}`;
 }
 
 function categoryLabel(service: ApiService) {
@@ -365,9 +353,6 @@ export default function ServicesPage() {
                     {th("amount", "Price")}
                     {th("city", "Location")}
                     {th("status", "Status")}
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase whitespace-nowrap">
-                      <div className="flex items-center gap-1"><Layers size={12} /> Sub-Services</div>
-                    </th>
                     <th className="px-4 py-3 text-center text-xs font-semibold text-gray-500 uppercase whitespace-nowrap">Actions</th>
                   </tr>
                 </thead>
@@ -423,15 +408,6 @@ export default function ServicesPage() {
                             : <ToggleLeft size={14} />}
                           {statusLabel(service.status)}
                         </button>
-                      </td>
-                      <td className="px-4 py-3">
-                        {service.subServices?.length ? (
-                          <span className="text-xs font-medium px-2.5 py-1 rounded-full bg-blue-50 text-blue-700">
-                            {service.subServices.length} {service.subServices.length === 1 ? "item" : "items"}
-                          </span>
-                        ) : (
-                          <span className="text-xs text-gray-400">None</span>
-                        )}
                       </td>
                       <td className="px-4 py-3">
                         <div className="flex items-center justify-center gap-1">

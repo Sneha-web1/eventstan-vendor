@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, FormEvent } from "react";
+import { useEffect, useState, FormEvent } from "react";
+import { useRouter } from "next/navigation";
 import {
   Eye,
   EyeOff,
@@ -14,7 +15,7 @@ import {
   CheckCircle,
 } from "lucide-react";
 import { vendorApi } from "@/api/vendorApi";
-import { saveSession, type VendorUser } from "@/lib/auth";
+import { clearSession, getToken, getUser, isLoggedIn, isVendorProfileComplete, saveSession, updateSessionUser, type VendorUser } from "@/lib/auth";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -26,6 +27,7 @@ interface LoginApiResponse {
     name: string;
     email: string;
     role: string;
+    updatedProfile?: boolean;
     [key: string]: unknown;
   };
   statusCode?: number;
@@ -59,11 +61,35 @@ function isSuccess(res: LoginApiResponse): boolean {
 // ─── Page Component ───────────────────────────────────────────────────────────
 
 export default function LoginPage() {
+  const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPass, setShowPass] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!isLoggedIn()) return;
+
+    const user = getUser();
+    if (user?.role !== 'VENDOR') {
+      clearSession();
+      return;
+    }
+
+    vendorApi.auth.me<VendorUser>()
+      .then((res) => {
+        if (res.role !== 'VENDOR') {
+          clearSession();
+          return;
+        }
+        const token = getToken();
+        if (token) saveSession(token, res);
+        updateSessionUser(res);
+        router.replace(isVendorProfileComplete(res) ? '/vendor/dashboard' : '/vendor/profile');
+      })
+      .catch(() => clearSession());
+  }, [router]);
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -76,7 +102,7 @@ export default function LoginPage() {
 
       if (isSuccess(res) && token && res.user?.role === "VENDOR") {
         saveSession(token, res.user as VendorUser);
-        window.location.href = "/vendor/dashboard";
+        window.location.href = isVendorProfileComplete(res.user as VendorUser) ? "/vendor/dashboard" : "/vendor/profile";
       } else if (res.user?.role && res.user.role !== "VENDOR") {
         setError("This portal is only available to vendor accounts.");
       } else {

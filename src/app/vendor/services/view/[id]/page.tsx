@@ -21,19 +21,6 @@ import {
 } from 'lucide-react';
 import { vendorApi } from '@/api/vendorApi';
 
-interface SubService {
-  id: string;
-  serviceId: string;
-  title: string;
-  description: string;
-  amount: number;
-  currency: string;
-  status: string;
-  imageUrl?: string;
-  createdAt?: string;
-  updatedAt?: string;
-}
-
 interface Service {
   id: string;
   vendorId: string;
@@ -51,7 +38,6 @@ interface Service {
   price_max?: number;
   price_unit?: string;
   status: string;
-  subServices: SubService[];
   vendor_name?: string;
   vendor_email?: string;
   vendor_phone?: string;
@@ -63,27 +49,7 @@ interface Service {
   review_count?: number;
   created_at?: string;
 }
-
-interface ApiSubService {
-  id: string;
-  serviceId: string;
-  title: string;
-  description: string;
-  amount?: number;
-  currency?: string;
-  price?: {
-    amount?: number;
-    currency?: string;
-  };
-  status: string;
-  imageUrl?: string;
-  createdAt?: string;
-  updatedAt?: string;
-}
-
-type ApiService = Omit<Service, 'subServices'> & {
-  subServices?: ApiSubService[];
-};
+type ApiService = Service;
 
 const CATEGORY_COLORS: Record<string, string> = {
   cat_wedding: 'bg-pink-50 text-pink-700 border-pink-200',
@@ -124,18 +90,6 @@ export default function ServiceDetailPage() {
         
         const transformedService: Service = {
           ...data,
-          subServices: data.subServices?.map((sub) => ({
-            id: sub.id,
-            serviceId: sub.serviceId,
-            title: sub.title,
-            description: sub.description,
-            amount: sub.amount || sub.price?.amount || 0,
-            currency: sub.currency || sub.price?.currency || 'AED',
-            status: sub.status,
-            imageUrl: sub.imageUrl,
-            createdAt: sub.createdAt,
-            updatedAt: sub.updatedAt,
-          })) || []
         };
         
         setService(transformedService);
@@ -251,6 +205,10 @@ export default function ServiceDetailPage() {
 
   const displayCategory = service.category || formatCategory(service.categoryId);
   const displayCity = service.location || service.city;
+  const minAmount = service.price_min ?? service.price?.amount ?? 0;
+  const maxAmount = service.price_max ?? minAmount;
+  const currency = service.price?.currency || 'AED';
+  const priceRange = `${minAmount.toLocaleString()} - ${maxAmount.toLocaleString()} ${currency}`;
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
@@ -424,20 +382,15 @@ export default function ServiceDetailPage() {
         </div>
 
         <div className="bg-white rounded-2xl border border-gray-100 p-5">
-          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Price</p>
+          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Service Price Range</p>
           <div className="flex items-center gap-2">
             <DollarSign size={16} className="text-orange-400" />
             <span className="text-xl font-bold text-gray-900">
-              {service.price?.amount?.toLocaleString() || 0} {service.price?.currency || 'AED'}
+              {priceRange}
             </span>
           </div>
           {service.price_unit && (
             <p className="text-xs text-gray-400 mt-0.5">{service.price_unit}</p>
-          )}
-          {service.price_min && service.price_max && service.price_min !== service.price_max && (
-            <p className="text-xs text-gray-400 mt-1">
-              Range: {service.price_min.toLocaleString()} - {service.price_max.toLocaleString()} {service.price?.currency || 'AED'}
-            </p>
           )}
         </div>
 
@@ -486,10 +439,10 @@ export default function ServiceDetailPage() {
         </div>
       )}
 
-      {/* Features */}
+      {/* What's Included */}
       {service.features && service.features.length > 0 && (
         <div className="bg-white rounded-2xl border border-gray-100 p-5">
-          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Features</p>
+          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">What's Included</p>
           <div className="flex flex-wrap gap-2">
             {service.features.map((feature, index) => (
               <span key={index} className="px-2 py-1 bg-blue-50 text-blue-600 text-xs rounded-full">
@@ -497,57 +450,6 @@ export default function ServiceDetailPage() {
               </span>
             ))}
           </div>
-        </div>
-      )}
-
-      {/* Sub Services */}
-      {service.subServices && service.subServices.length > 0 ? (
-        <div className="bg-white rounded-2xl border border-gray-100 p-5">
-          <div className="flex items-center gap-2 mb-4">
-            <Package size={18} className="text-orange-500" />
-            <p className="text-sm font-semibold text-gray-900 uppercase tracking-wide">Sub-Services</p>
-            <span className="text-xs text-gray-400">({service.subServices.length})</span>
-          </div>
-          <div className="space-y-3">
-            {service.subServices.map((sub) => (
-              <div key={sub.id} className="border border-gray-100 rounded-xl p-4 hover:bg-gray-50 transition-colors">
-                <div className="flex justify-between items-start flex-wrap gap-3">
-                  <div className="flex-1">
-                    <h4 className="font-semibold text-gray-900 text-sm">{sub.title}</h4>
-                    <p className="text-xs text-gray-500 mt-1">{sub.description}</p>
-                    <p className="text-xs text-gray-400 mt-1 font-mono">ID: {sub.id}</p>
-                  </div>
-                  <div className="text-right">
-                    <p className="font-bold text-orange-600 text-sm">
-                      {sub.amount?.toLocaleString() || 0} {sub.currency || 'AED'}
-                    </p>
-                    <span
-                      className={`text-xs px-2 py-0.5 rounded-full mt-1 inline-block ${
-                        sub.status === 'ACTIVE' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'
-                      }`}
-                    >
-                      {sub.status === 'ACTIVE' ? 'Active' : 'Inactive'}
-                    </span>
-                  </div>
-                </div>
-                {/* Sub-service image if available */}
-                {sub.imageUrl && (
-                  <div className="mt-3">
-                    <img
-                      src={sub.imageUrl}
-                      alt={sub.title}
-                      className="w-32 h-32 object-cover rounded-lg"
-                    />
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        </div>
-      ) : (
-        <div className="bg-white rounded-2xl border border-gray-100 p-5 text-center">
-          <Package size={24} className="text-gray-300 mx-auto mb-2" />
-          <p className="text-sm text-gray-500">No sub-services available</p>
         </div>
       )}
 

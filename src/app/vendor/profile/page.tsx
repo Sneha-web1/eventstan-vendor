@@ -1,12 +1,14 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import {
   Save, MapPin, Phone, Mail, Shield, Loader2, Building2,
   User, CreditCard, CalendarClock, Landmark, BadgeCheck,
-  Globe, FileText, Percent, Lock, ChevronDown
+  Globe, FileText, Percent, Lock, ChevronDown, CheckCircle2
 } from 'lucide-react';
 import { vendorApi } from '@/api/vendorApi';
+import { updateSessionUser } from '@/lib/auth';
 
 interface VendorProfile {
   id: string;
@@ -37,6 +39,8 @@ interface VendorProfile {
   planDetails?: string | null;
   planExpiry?: string | null;
   commissionPercent?: string | null;
+  agreementFileUrl?: string | null;
+  agreementFileKey?: string | null;
   // Bank
   bankName?: string | null;
   accountFullName?: string | null;
@@ -55,6 +59,12 @@ function formatDate(iso?: string | null) {
 function isPlanExpired(iso?: string | null) {
   if (!iso) return false;
   return new Date(iso) < new Date();
+}
+
+function hasValue(value: string | number | string[] | null | undefined) {
+  if (Array.isArray(value)) return value.length > 0;
+  if (typeof value === 'number') return value > 0;
+  return Boolean(value && String(value).trim());
 }
 
 /* ─── sub-components ───────────────────────────────────────── */
@@ -131,6 +141,7 @@ function Field({
 
 /* ─── main page ────────────────────────────────────────────── */
 export default function ProfilePage() {
+  const router = useRouter();
   const [profile, setProfile] = useState<VendorProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -158,17 +169,37 @@ export default function ProfilePage() {
         contactPerson: profile.contactPerson,
         email: profile.email,
         phone: profile.phone,
+        firstName: profile.firstName ?? '',
+        lastName: profile.lastName ?? '',
+        userName: profile.userName ?? '',
+        primaryEmail: profile.primaryEmail ?? '',
+        telephone: profile.telephone ?? '',
+        primaryMobile: profile.primaryMobile ?? '',
         about: profile.about ?? '',
         businessLocation: profile.businessLocation ?? '',
         address: profile.address ?? '',
         specialization: profile.specialization ?? '',
-        primaryMobile: profile.primaryMobile ?? '',
         cities: profile.cities,
         capacityPerDay: profile.capacityPerDay,
-        telephone: profile.telephone ?? '',
+        tradeLicenseNumber: profile.tradeLicenseNumber ?? '',
+        vatNumber: profile.vatNumber ?? '',
+        visaType: profile.visaType ?? '',
+        planDetails: profile.planDetails ?? '',
+        planExpiry: profile.planExpiry ?? '',
+        commissionPercent: profile.commissionPercent ? Number(profile.commissionPercent) : 0,
+        agreementFileUrl: profile.agreementFileUrl ?? '',
+        agreementFileKey: profile.agreementFileKey ?? '',
+        bankName: profile.bankName ?? '',
+        accountFullName: profile.accountFullName ?? '',
+        ibanNo: profile.ibanNo ?? '',
+        accountNumber: profile.accountNumber ?? '',
+        swift: profile.swift ?? '',
+        branchAddress: profile.branchAddress ?? '',
       });
       setProfile(updated);
+      updateSessionUser({ companyName: updated.companyName, email: updated.email, phone: updated.phone, updatedProfile: true });
       setMessage('Profile saved successfully.');
+      router.replace('/vendor/dashboard');
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Unable to save profile');
     } finally {
@@ -193,6 +224,27 @@ export default function ProfilePage() {
   }
 
   const expired = isPlanExpired(profile.planExpiry);
+  const completionChecks = [
+    { label: 'Business name', done: hasValue(profile.companyName) },
+    { label: 'Contact person', done: hasValue(profile.contactPerson) },
+    { label: 'Login email', done: hasValue(profile.email) },
+    { label: 'Phone number', done: hasValue(profile.phone) },
+    { label: 'Description', done: hasValue(profile.about) },
+    { label: 'Business location', done: hasValue(profile.businessLocation) },
+    { label: 'Address', done: hasValue(profile.address) },
+    { label: 'Specialization', done: hasValue(profile.specialization) },
+    { label: 'Service cities', done: hasValue(profile.cities) },
+    { label: 'Trade license', done: hasValue(profile.tradeLicenseNumber) },
+    { label: 'VAT number', done: hasValue(profile.vatNumber) },
+    { label: 'Primary mobile', done: hasValue(profile.primaryMobile) },
+    { label: 'Bank name', done: hasValue(profile.bankName) },
+    { label: 'Account name', done: hasValue(profile.accountFullName) },
+    { label: 'IBAN', done: hasValue(profile.ibanNo) },
+  ];
+  const completedFields = completionChecks.filter((item) => item.done).length;
+  const totalFields = completionChecks.length;
+  const completionPercent = Math.round((completedFields / totalFields) * 100);
+  const missingFields = completionChecks.filter((item) => !item.done).map((item) => item.label);
 
   return (
     <div className="space-y-6 max-w-4xl pb-10">
@@ -204,6 +256,47 @@ export default function ProfilePage() {
       </div>
 
       {/* ── Alerts ── */}
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 space-y-4">
+        <div className="flex items-start justify-between gap-4 flex-wrap">
+          <div>
+            <p className="text-sm font-semibold text-gray-900">Profile completion</p>
+            <p className="text-xs text-gray-500 mt-1">
+              {completedFields} of {totalFields} key profile fields completed
+            </p>
+          </div>
+          <div className="text-right">
+            <p className="text-2xl font-bold text-orange-500">{completionPercent}%</p>
+            <p className="text-xs text-gray-400">
+              {completionPercent === 100 ? 'Profile complete' : 'Complete more fields to strengthen your profile'}
+            </p>
+          </div>
+        </div>
+        <div className="h-3 rounded-full bg-gray-100 overflow-hidden">
+          <div
+            className="h-full rounded-full bg-gradient-to-r from-orange-400 to-orange-500 transition-all duration-300"
+            style={{ width: `${completionPercent}%` }}
+          />
+        </div>
+        {missingFields.length > 0 && (
+          <div>
+            <p className="text-xs font-medium text-gray-600 mb-2">Still missing</p>
+            <div className="flex flex-wrap gap-2">
+              {missingFields.map((field) => (
+                <span key={field} className="px-2.5 py-1 rounded-full bg-orange-50 text-orange-700 text-xs">
+                  {field}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+        {completionPercent === 100 && (
+          <div className="flex items-center gap-2 text-sm text-green-700">
+            <CheckCircle2 size={16} />
+            Your profile is fully completed.
+          </div>
+        )}
+      </div>
+
       {message && (
         <div className="bg-green-50 border border-green-200 rounded-xl p-4 text-green-800 text-sm flex items-center gap-2">
           <Shield size={15} /> {message}
@@ -242,8 +335,8 @@ export default function ProfilePage() {
         <div className="grid sm:grid-cols-2 gap-4">
           <Field label="First Name" value={profile.firstName ?? ''} onChange={(v) => update('firstName', v)} icon={User} />
           <Field label="Last Name"  value={profile.lastName  ?? ''} onChange={(v) => update('lastName',  v)} icon={User} />
-          <Field label="Username"   value={profile.userName  ?? ''} readOnly icon={User} />
-          <Field label="Primary Email" value={profile.primaryEmail ?? ''} readOnly type="email" icon={Mail} />
+          <Field label="Username"   value={profile.userName  ?? ''} onChange={(v) => update('userName', v)} icon={User} />
+          <Field label="Primary Email" value={profile.primaryEmail ?? ''} onChange={(v) => update('primaryEmail', v)} type="email" icon={Mail} />
           <Field label="Telephone"  value={profile.telephone ?? ''} onChange={(v) => update('telephone', v)} icon={Phone} />
           <Field label="Primary Mobile" value={profile.primaryMobile ?? ''} onChange={(v) => update('primaryMobile', v)} icon={Phone} />
         </div>
@@ -307,58 +400,33 @@ export default function ProfilePage() {
       {/* ── 3. Legal & Compliance ── */}
       <SectionCard title="Legal & Compliance" icon={FileText}>
         <div className="grid sm:grid-cols-2 gap-4">
-          <Field label="Trade License Number" value={profile.tradeLicenseNumber ?? ''} readOnly icon={FileText} />
-          <Field label="VAT Number"           value={profile.vatNumber ?? ''}          readOnly icon={FileText} />
-          <Field label="Visa Type"            value={profile.visaType ?? ''}           readOnly icon={Shield} />
+          <Field label="Trade License Number" value={profile.tradeLicenseNumber ?? ''} onChange={(v) => update('tradeLicenseNumber', v)} icon={FileText} />
+          <Field label="VAT Number"           value={profile.vatNumber ?? ''}          onChange={(v) => update('vatNumber', v)} icon={FileText} />
+          <Field label="Visa Type"            value={profile.visaType ?? ''}           onChange={(v) => update('visaType', v)} icon={Shield} />
         </div>
-        <p className="text-xs text-gray-400 mt-3 flex items-center gap-1">
-          <Lock size={10} /> These fields are managed by EventStan. Contact support to update them.
-        </p>
       </SectionCard>
 
       {/* ── 4. Plan & Commission ── */}
       <SectionCard title="Plan & Commission" icon={CalendarClock}>
-        <div className="grid sm:grid-cols-3 gap-4">
-          <div className="sm:col-span-2">
-            <Field label="Active Plan" value={profile.planDetails ?? '—'} readOnly icon={BadgeCheck} />
-          </div>
-          <div>
-            <label className="text-xs font-medium text-gray-500 mb-1 block">Commission</label>
-            <div className="relative">
-              <Percent size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-              <input
-                readOnly
-                value={profile.commissionPercent ? `${profile.commissionPercent}%` : '—'}
-                className="w-full pl-9 pr-4 py-2.5 text-sm border border-gray-100 rounded-xl bg-gray-50 text-gray-400 cursor-not-allowed"
-              />
-              <Lock size={11} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-300" />
-            </div>
-          </div>
-          <div>
-            <label className="text-xs font-medium text-gray-500 mb-1 block">Plan Expiry</label>
-            <div className={`px-4 py-2.5 text-sm rounded-xl border ${expired ? 'bg-red-50 border-red-200 text-red-600' : 'bg-gray-50 border-gray-100 text-gray-400'}`}>
-              {formatDate(profile.planExpiry)} {expired && '· Expired'}
-            </div>
-          </div>
+        <div className="grid sm:grid-cols-2 gap-4">
+          <Field label="Active Plan" value={profile.planDetails ?? ''} onChange={(v) => update('planDetails', v)} icon={BadgeCheck} />
+          <Field label="Commission %" value={profile.commissionPercent ?? ''} onChange={(v) => update('commissionPercent', v)} type="number" icon={Percent} />
+          <Field label="Plan Expiry" value={profile.planExpiry?.slice(0, 10) ?? ''} onChange={(v) => update('planExpiry', v)} type="date" icon={CalendarClock} />
+          <Field label="Agreement File URL" value={profile.agreementFileUrl ?? ''} onChange={(v) => update('agreementFileUrl', v)} icon={FileText} />
+          <Field label="Agreement File Key" value={profile.agreementFileKey ?? ''} onChange={(v) => update('agreementFileKey', v)} icon={FileText} />
         </div>
-        <p className="text-xs text-gray-400 mt-3 flex items-center gap-1">
-          <Lock size={10} /> Plan and commission details are set by EventStan.
-        </p>
       </SectionCard>
 
       {/* ── 5. Bank Details ── */}
       <SectionCard title="Bank Details" icon={Landmark}>
         <div className="grid sm:grid-cols-2 gap-4">
-          <Field label="Bank Name"       value={profile.bankName ?? ''}        readOnly icon={Landmark} />
-          <Field label="Account Name"    value={profile.accountFullName ?? ''} readOnly icon={User} />
-          <Field label="Account Number"  value={profile.accountNumber ?? ''}   readOnly icon={CreditCard} />
-          <Field label="IBAN"            value={profile.ibanNo ?? ''}          readOnly icon={CreditCard} />
-          <Field label="SWIFT / BIC"     value={profile.swift ?? ''}           readOnly icon={Globe} />
-          <Field label="Branch Address"  value={profile.branchAddress ?? ''}   readOnly icon={MapPin} />
+          <Field label="Bank Name"       value={profile.bankName ?? ''}        onChange={(v) => update('bankName', v)} icon={Landmark} />
+          <Field label="Account Name"    value={profile.accountFullName ?? ''} onChange={(v) => update('accountFullName', v)} icon={User} />
+          <Field label="Account Number"  value={profile.accountNumber ?? ''}   onChange={(v) => update('accountNumber', v)} icon={CreditCard} />
+          <Field label="IBAN"            value={profile.ibanNo ?? ''}          onChange={(v) => update('ibanNo', v)} icon={CreditCard} />
+          <Field label="SWIFT / BIC"     value={profile.swift ?? ''}           onChange={(v) => update('swift', v)} icon={Globe} />
+          <Field label="Branch Address"  value={profile.branchAddress ?? ''}   onChange={(v) => update('branchAddress', v)} icon={MapPin} />
         </div>
-        <p className="text-xs text-gray-400 mt-3 flex items-center gap-1">
-          <Lock size={10} /> Bank details are managed by EventStan. Contact support to update them.
-        </p>
       </SectionCard>
 
       {/* ── Save button ── */}
