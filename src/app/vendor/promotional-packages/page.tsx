@@ -2,8 +2,27 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { AlertTriangle, BadgePercent, CheckCircle2, Edit3, Loader2, Megaphone, Package as PackageIcon, Search, Sparkles, X } from 'lucide-react';
+import { 
+  AlertTriangle, 
+  BadgePercent, 
+  CheckCircle2, 
+  Edit3, 
+  Eye,
+  Loader2, 
+  Megaphone, 
+  Package as PackageIcon, 
+  Search, 
+  Sparkles, 
+  X,
+  ChevronDown,
+  ChevronUp,
+  ChevronsUpDown,
+  Layers,
+  Filter,
+  CalendarDays,
+} from 'lucide-react';
 import { vendorApi } from '@/api/vendorApi';
+import Pagination from '@/components/vendor/Pagination';
 
 interface PackageService {
   id: string;
@@ -28,7 +47,22 @@ interface ApiPackage {
   promotion_discount_type?: 'FLAT' | 'PERCENTAGE' | null;
   promotionDiscountValue?: number | null;
   promotion_discount_value?: number | null;
+  promotionStartDate?: string | null;
+  promotion_start_date?: string | null;
+  promotionEndDate?: string | null;
+  promotion_end_date?: string | null;
+  maxGuests?: number | null;
+  max_guests?: number | null;
+  durationHours?: number | null;
+  duration_hours?: number | null;
+  slug?: string;
 }
+
+type SortKey = "title" | "price" | "discount" | "status";
+type SortDir = "asc" | "desc";
+type FilterType = "all" | "promotional" | "standard";
+
+const ITEMS_PER_PAGE = 10;
 
 function packageAmount(pkg: ApiPackage) {
   return pkg.money?.amount ?? pkg.amount ?? pkg.price ?? 0;
@@ -36,6 +70,14 @@ function packageAmount(pkg: ApiPackage) {
 
 function packageCurrency(pkg: ApiPackage) {
   return pkg.money?.currency ?? pkg.currency ?? 'AED';
+}
+
+function packageMaxGuests(pkg: ApiPackage) {
+  return pkg.maxGuests ?? pkg.max_guests ?? null;
+}
+
+function packageDurationHours(pkg: ApiPackage) {
+  return pkg.durationHours ?? pkg.duration_hours ?? null;
 }
 
 function packageServiceName(pkg: ApiPackage) {
@@ -46,6 +88,8 @@ function promotionalMeta(pkg: ApiPackage) {
   const isPromotional = Boolean(pkg.isPromotional || pkg.is_promotional);
   const discountType = pkg.promotionDiscountType || pkg.promotion_discount_type || null;
   const discountValue = pkg.promotionDiscountValue ?? pkg.promotion_discount_value ?? 0;
+  const startDate = pkg.promotionStartDate || pkg.promotion_start_date || null;
+  const endDate = pkg.promotionEndDate || pkg.promotion_end_date || null;
   const amount = packageAmount(pkg);
 
   if (!isPromotional || !discountType || !discountValue) {
@@ -53,6 +97,8 @@ function promotionalMeta(pkg: ApiPackage) {
       isPromotional: false,
       discountType,
       discountValue,
+      startDate,
+      endDate,
       finalAmount: amount,
       hasDiscount: false,
     };
@@ -67,9 +113,25 @@ function promotionalMeta(pkg: ApiPackage) {
     isPromotional: true,
     discountType,
     discountValue,
+    startDate,
+    endDate,
     finalAmount,
     hasDiscount: finalAmount < amount,
   };
+}
+
+function SortIcon({ col, sortKey, sortDir }: { col: SortKey; sortKey: SortKey; sortDir: SortDir }) {
+  if (col !== sortKey) return <ChevronsUpDown size={13} className="text-gray-300 ml-1 inline" />;
+  return sortDir === "asc"
+    ? <ChevronUp size={13} className="text-orange-500 ml-1 inline" />
+    : <ChevronDown size={13} className="text-orange-500 ml-1 inline" />;
+}
+
+function toDateInputValue(value?: string | null) {
+  if (!value) return '';
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toISOString().slice(0, 10);
 }
 
 function PromotionModal({
@@ -88,12 +150,20 @@ function PromotionModal({
   const [enabled, setEnabled] = useState(false);
   const [discountType, setDiscountType] = useState<'FLAT' | 'PERCENTAGE'>('PERCENTAGE');
   const [discountValue, setDiscountValue] = useState('');
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
+  const [maxGuests, setMaxGuests] = useState('');
+  const [durationHours, setDurationHours] = useState('');
 
   useEffect(() => {
     if (!pkg) return;
     setEnabled(Boolean(pkg.isPromotional || pkg.is_promotional));
     setDiscountType((pkg.promotionDiscountType || pkg.promotion_discount_type || 'PERCENTAGE') as 'FLAT' | 'PERCENTAGE');
     setDiscountValue(String(pkg.promotionDiscountValue ?? pkg.promotion_discount_value ?? ''));
+    setStartDate(toDateInputValue(pkg.promotionStartDate ?? pkg.promotion_start_date));
+    setEndDate(toDateInputValue(pkg.promotionEndDate ?? pkg.promotion_end_date));
+    setMaxGuests(String(packageMaxGuests(pkg) ?? ''));
+    setDurationHours(String(packageDurationHours(pkg) ?? ''));
     setError('');
     setSaving(false);
   }, [pkg]);
@@ -114,6 +184,21 @@ function PromotionModal({
       return;
     }
 
+    if (enabled && startDate && endDate && new Date(endDate) < new Date(startDate)) {
+      setError('End date cannot be before start date.');
+      return;
+    }
+
+    if (maxGuests && Number(maxGuests) <= 0) {
+      setError('Max guests must be greater than 0.');
+      return;
+    }
+
+    if (durationHours && Number(durationHours) <= 0) {
+      setError('Duration must be greater than 0.');
+      return;
+    }
+
     setSaving(true);
     setError('');
 
@@ -122,6 +207,10 @@ function PromotionModal({
         isPromotional: enabled,
         promotionDiscountType: enabled ? discountType : undefined,
         promotionDiscountValue: enabled ? Number(discountValue) : undefined,
+        promotionStartDate: enabled && startDate ? startDate : undefined,
+        promotionEndDate: enabled && endDate ? endDate : undefined,
+        maxGuests: maxGuests ? Number(maxGuests) : undefined,
+        durationHours: durationHours ? Number(durationHours) : undefined,
       });
       onSaved(updated);
       onClose();
@@ -135,7 +224,7 @@ function PromotionModal({
   return (
     <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
       <button className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} aria-label="Close" />
-      <div className="relative w-full max-w-lg rounded-3xl bg-white p-6 shadow-2xl">
+      <div className="relative w-full max-w-lg rounded-3xl bg-white p-6 shadow-2xl max-h-[90vh] overflow-y-auto">
         <button onClick={onClose} className="absolute right-4 top-4 rounded-full p-2 text-gray-400 transition hover:bg-gray-100 hover:text-gray-600">
           <X size={18} />
         </button>
@@ -172,33 +261,88 @@ function PromotionModal({
             </div>
           </div>
 
-          {enabled && (
-            <div className="grid gap-4 sm:grid-cols-[160px_minmax(0,1fr)]">
-              <div>
-                <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-gray-600">Discount type</label>
-                <select
-                  value={discountType}
-                  onChange={(e) => setDiscountType(e.target.value as 'FLAT' | 'PERCENTAGE')}
-                  className="w-full rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-900 outline-none transition focus:border-orange-400 focus:ring-4 focus:ring-orange-100"
-                >
-                  <option value="PERCENTAGE">Percentage</option>
-                  <option value="FLAT">Flat</option>
-                </select>
-              </div>
-              <div>
-                <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-gray-600">
-                  {discountType === 'FLAT' ? 'Flat discount' : 'Discount percentage'}
-                </label>
-                <input
-                  type="number"
-                  min="0"
-                  value={discountValue}
-                  onChange={(e) => setDiscountValue(e.target.value)}
-                  placeholder={discountType === 'FLAT' ? '150' : '20'}
-                  className="w-full rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-900 outline-none transition focus:border-orange-400 focus:ring-4 focus:ring-orange-100"
-                />
-              </div>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div>
+              <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-gray-600">Max guests</label>
+              <input
+                type="number"
+                min="0"
+                value={maxGuests}
+                onChange={(e) => setMaxGuests(e.target.value)}
+                placeholder="e.g. 10"
+                className="w-full rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-900 outline-none transition focus:border-orange-400 focus:ring-4 focus:ring-orange-100"
+              />
             </div>
+            <div>
+              <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-gray-600">Duration (hrs)</label>
+              <input
+                type="number"
+                min="0"
+                step="0.5"
+                value={durationHours}
+                onChange={(e) => setDurationHours(e.target.value)}
+                placeholder="e.g. 2"
+                className="w-full rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-900 outline-none transition focus:border-orange-400 focus:ring-4 focus:ring-orange-100"
+              />
+            </div>
+          </div>
+
+          {enabled && (
+            <>
+              <div className="grid gap-4 sm:grid-cols-[160px_minmax(0,1fr)]">
+                <div>
+                  <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-gray-600">Discount type</label>
+                  <select
+                    value={discountType}
+                    onChange={(e) => setDiscountType(e.target.value as 'FLAT' | 'PERCENTAGE')}
+                    className="w-full rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-900 outline-none transition focus:border-orange-400 focus:ring-4 focus:ring-orange-100"
+                  >
+                    <option value="PERCENTAGE">Percentage</option>
+                    <option value="FLAT">Flat</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-gray-600">
+                    {discountType === 'FLAT' ? 'Flat discount' : 'Discount percentage'}
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    value={discountValue}
+                    onChange={(e) => setDiscountValue(e.target.value)}
+                    placeholder={discountType === 'FLAT' ? '150' : '20'}
+                    className="w-full rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-900 outline-none transition focus:border-orange-400 focus:ring-4 focus:ring-orange-100"
+                  />
+                </div>
+              </div>
+
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div>
+                  <label className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-gray-600">
+                    <CalendarDays size={13} /> Start date
+                  </label>
+                  <input
+                    type="date"
+                    value={startDate}
+                    onChange={(e) => setStartDate(e.target.value)}
+                    className="w-full rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-900 outline-none transition focus:border-orange-400 focus:ring-4 focus:ring-orange-100"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-gray-600">
+                    <CalendarDays size={13} /> End date
+                  </label>
+                  <input
+                    type="date"
+                    value={endDate}
+                    min={startDate || undefined}
+                    onChange={(e) => setEndDate(e.target.value)}
+                    className="w-full rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-900 outline-none transition focus:border-orange-400 focus:ring-4 focus:ring-orange-100"
+                  />
+                </div>
+              </div>
+              <p className="text-xs text-gray-400 -mt-2">Leave dates empty for a promotion with no fixed schedule.</p>
+            </>
           )}
 
           <div className="rounded-2xl border border-gray-100 bg-gray-50 p-4">
@@ -213,6 +357,11 @@ function PromotionModal({
                 <p className="text-2xl font-bold text-orange-500">{previewAmount.toLocaleString()} {packageCurrency(pkg)}</p>
               </div>
             </div>
+            {enabled && (startDate || endDate) && (
+              <p className="mt-3 text-xs text-gray-500">
+                Active {startDate ? `from ${startDate}` : ''} {endDate ? `to ${endDate}` : ''}
+              </p>
+            )}
           </div>
         </div>
 
@@ -243,6 +392,10 @@ export default function PromotionalPackagesPage() {
   const [success, setSuccess] = useState('');
   const [search, setSearch] = useState('');
   const [selected, setSelected] = useState<ApiPackage | null>(null);
+  const [sortKey, setSortKey] = useState<SortKey>("title");
+  const [sortDir, setSortDir] = useState<SortDir>("asc");
+  const [currentPage, setCurrentPage] = useState(1);
+  const [filterType, setFilterType] = useState<FilterType>("promotional"); // Changed from "all" to "promotional"
 
   const fetchPackages = async () => {
     try {
@@ -260,19 +413,71 @@ export default function PromotionalPackagesPage() {
     void fetchPackages();
   }, []);
 
+  // Reset to page 1 when search, sort, or filter changes
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [search, sortKey, sortDir, filterType]);
+
+  const toggleSort = (key: SortKey) => {
+    if (sortKey === key) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    else { setSortKey(key); setSortDir("asc"); }
+  };
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return packages.filter((pkg) => {
-      if (!q) return true;
-      return (
-        pkg.title.toLowerCase().includes(q) ||
-        (pkg.description || '').toLowerCase().includes(q) ||
-        packageServiceName(pkg).toLowerCase().includes(q)
-      );
-    });
-  }, [packages, search]);
+    return packages
+      .filter((pkg) => {
+        // Search filter
+        if (q && !(
+          pkg.title.toLowerCase().includes(q) ||
+          (pkg.description || '').toLowerCase().includes(q) ||
+          packageServiceName(pkg).toLowerCase().includes(q)
+        )) {
+          return false;
+        }
+
+        // Type filter
+        const isPromo = promotionalMeta(pkg).isPromotional;
+        if (filterType === "promotional" && !isPromo) return false;
+        if (filterType === "standard" && isPromo) return false;
+
+        return true;
+      })
+      .sort((a, b) => {
+        let cmp = 0;
+        const promoA = promotionalMeta(a);
+        const promoB = promotionalMeta(b);
+        if (sortKey === "title") cmp = a.title.localeCompare(b.title);
+        if (sortKey === "price") cmp = packageAmount(a) - packageAmount(b);
+        if (sortKey === "discount") cmp = (promoA.discountValue || 0) - (promoB.discountValue || 0);
+        if (sortKey === "status") cmp = a.status.localeCompare(b.status);
+        return sortDir === "asc" ? cmp : -cmp;
+      });
+  }, [packages, search, sortKey, sortDir, filterType]);
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / ITEMS_PER_PAGE));
+  const paginated = filtered.slice(
+    (currentPage - 1) * ITEMS_PER_PAGE,
+    currentPage * ITEMS_PER_PAGE
+  );
 
   const promotionalCount = packages.filter((pkg) => promotionalMeta(pkg).isPromotional).length;
+  const standardCount = packages.length - promotionalCount;
+
+  const th = (key: SortKey, label: string) => (
+    <th
+      onClick={() => toggleSort(key)}
+      className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase cursor-pointer select-none hover:text-orange-600 whitespace-nowrap"
+    >
+      {label}
+      <SortIcon col={key} sortKey={sortKey} sortDir={sortDir} />
+    </th>
+  );
+
+  // Filter click handlers
+  const handleFilterClick = (type: FilterType) => {
+    setFilterType(type);
+  };
 
   return (
     <div className="space-y-6">
@@ -301,19 +506,41 @@ export default function PromotionalPackagesPage() {
         </div>
       )}
 
+      {/* Stats Cards with Click Filters */}
       <div className="grid gap-4 sm:grid-cols-3">
-        <div className="rounded-3xl border border-gray-100 bg-white p-5 shadow-sm">
+        <button
+          onClick={() => handleFilterClick("all")}
+          className={`rounded-3xl border p-5 shadow-sm transition-all text-left w-full ${
+            filterType === "all" 
+              ? "border-orange-400 bg-orange-50 ring-2 ring-orange-200" 
+              : "border-gray-100 bg-white hover:border-orange-200 hover:bg-orange-50/30"
+          }`}
+        >
           <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">Total packages</p>
           <p className="mt-2 text-3xl font-bold text-gray-900">{packages.length}</p>
-        </div>
-        <div className="rounded-3xl border border-orange-100 bg-orange-50/70 p-5 shadow-sm">
+        </button>
+        <button
+          onClick={() => handleFilterClick("promotional")}
+          className={`rounded-3xl border p-5 shadow-sm transition-all text-left w-full ${
+            filterType === "promotional" 
+              ? "border-orange-400 bg-orange-50 ring-2 ring-orange-200" 
+              : "border-orange-100 bg-orange-50/70 hover:border-orange-300 hover:bg-orange-50"
+          }`}
+        >
           <p className="text-xs font-semibold uppercase tracking-wide text-orange-500">Live promotions</p>
           <p className="mt-2 text-3xl font-bold text-orange-600">{promotionalCount}</p>
-        </div>
-        <div className="rounded-3xl border border-gray-100 bg-white p-5 shadow-sm">
+        </button>
+        <button
+          onClick={() => handleFilterClick("standard")}
+          className={`rounded-3xl border p-5 shadow-sm transition-all text-left w-full ${
+            filterType === "standard" 
+              ? "border-orange-400 bg-orange-50 ring-2 ring-orange-200" 
+              : "border-gray-100 bg-white hover:border-orange-200 hover:bg-orange-50/30"
+          }`}
+        >
           <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">Normal packages</p>
-          <p className="mt-2 text-3xl font-bold text-gray-900">{Math.max(0, packages.length - promotionalCount)}</p>
-        </div>
+          <p className="mt-2 text-3xl font-bold text-gray-900">{standardCount}</p>
+        </button>
       </div>
 
       <div className="relative">
@@ -335,59 +562,151 @@ export default function PromotionalPackagesPage() {
         </div>
       ) : filtered.length === 0 ? (
         <div className="rounded-3xl border border-dashed border-gray-200 bg-white py-16 text-center">
-          <Sparkles size={42} className="mx-auto mb-4 text-gray-300" />
+          <Layers size={42} className="mx-auto mb-4 text-gray-300" />
           <p className="font-medium text-gray-500">No packages match this search.</p>
+          <p className="text-sm text-gray-400 mt-1">
+            {search ? "Try clearing search." : "Create a package to make it promotional."}
+          </p>
         </div>
       ) : (
-        <div className="grid gap-4 lg:grid-cols-2">
-          {filtered.map((pkg) => {
-            const promo = promotionalMeta(pkg);
-            return (
-              <div key={pkg.id} className="rounded-3xl border border-gray-100 bg-white p-5 shadow-sm">
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <h2 className="text-lg font-semibold text-gray-900">{pkg.title}</h2>
-                      {promo.isPromotional ? (
-                        <span className="inline-flex items-center gap-1 rounded-full bg-orange-100 px-2.5 py-1 text-xs font-semibold text-orange-600">
-                          <BadgePercent size={12} /> Promotional
-                        </span>
-                      ) : (
-                        <span className="rounded-full bg-gray-100 px-2.5 py-1 text-xs font-semibold text-gray-500">Standard</span>
-                      )}
-                    </div>
-                    <p className="mt-1 text-sm text-gray-500">{packageServiceName(pkg)}</p>
-                    {pkg.description && <p className="mt-3 line-clamp-2 text-sm text-gray-600">{pkg.description}</p>}
-                  </div>
-                  <button
-                    onClick={() => setSelected(pkg)}
-                    className="inline-flex items-center gap-2 rounded-2xl border border-orange-200 bg-orange-50 px-3 py-2 text-sm font-semibold text-orange-600 transition hover:bg-orange-100"
-                  >
-                    <Edit3 size={15} />
-                    {promo.isPromotional ? 'Edit Promo' : 'Make Promo'}
-                  </button>
-                </div>
+        <>
+          <div className="bg-white rounded-3xl border border-gray-100 overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[1000px]">
+                <thead className="bg-gray-50 border-b border-gray-100">
+                  <tr>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase whitespace-nowrap">Sr No.</th>
+                    {th("title", "Package")}
+                    {th("price", "Price")}
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase whitespace-nowrap">Guests / Duration</th>
+                    {th("discount", "Discount")}
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase whitespace-nowrap">Schedule</th>
+                    {th("status", "Status")}
+                    <th className="px-4 py-3 text-center text-xs font-semibold text-gray-500 uppercase whitespace-nowrap">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-50">
+                  {paginated.map((pkg, index) => {
+                    const promo = promotionalMeta(pkg);
+                    const serialNumber = (currentPage - 1) * ITEMS_PER_PAGE + index + 1;
+                    return (
+                      <tr key={pkg.id} className="hover:bg-orange-50/30 transition-colors">
+                        <td className="px-4 py-4">
+                          <span className="text-sm font-medium text-gray-400">{serialNumber}</span>
+                        </td>
+                        <td className="px-4 py-4">
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <p className="text-sm font-semibold text-gray-900">{pkg.title}</p>
+                              {promo.isPromotional ? (
+                                <span className="inline-flex items-center gap-1 rounded-full bg-orange-100 px-2 py-0.5 text-xs font-semibold text-orange-600">
+                                  <BadgePercent size={11} /> Promo
+                                </span>
+                              ) : (
+                                <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-semibold text-gray-500">Standard</span>
+                              )}
+                            </div>
+                            <p className="text-xs text-gray-500 mt-0.5">{packageServiceName(pkg)}</p>
+                            {pkg.description && (
+                              <p className="text-xs text-gray-400 mt-1 line-clamp-1">{pkg.description}</p>
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-4 py-4">
+                          <div>
+                            {promo.isPromotional ? (
+                              <>
+                                <p className="text-sm font-bold text-orange-600">
+                                  {promo.finalAmount.toLocaleString()} {packageCurrency(pkg)}
+                                </p>
+                                <p className="text-xs text-gray-400 line-through">
+                                  {packageAmount(pkg).toLocaleString()} {packageCurrency(pkg)}
+                                </p>
+                              </>
+                            ) : (
+                              <p className="text-sm font-semibold text-gray-900">
+                                {packageAmount(pkg).toLocaleString()} {packageCurrency(pkg)}
+                              </p>
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-4 py-4">
+                          <div className="text-xs text-gray-600 space-y-0.5">
+                            <p>{packageMaxGuests(pkg) != null ? `${packageMaxGuests(pkg)} guests` : '—'}</p>
+                            <p className="text-gray-400">{packageDurationHours(pkg) != null ? `${packageDurationHours(pkg)} hrs` : '—'}</p>
+                          </div>
+                        </td>
+                        <td className="px-4 py-4">
+                          {promo.isPromotional ? (
+                            <span className="inline-flex items-center gap-1 text-sm font-semibold text-green-600">
+                              {promo.discountValue} {promo.discountType === 'FLAT' ? packageCurrency(pkg) : '%'}
+                              <span className="text-xs text-gray-400 font-normal">off</span>
+                            </span>
+                          ) : (
+                            <span className="text-sm text-gray-400">—</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-4">
+                          {promo.isPromotional && (promo.startDate || promo.endDate) ? (
+                            <div className="flex items-center gap-1 text-xs text-gray-500">
+                              <CalendarDays size={12} className="text-gray-400" />
+                              <span>
+                                {promo.startDate ? toDateInputValue(promo.startDate) : '—'}
+                                {' '}–{' '}
+                                {promo.endDate ? toDateInputValue(promo.endDate) : '—'}
+                              </span>
+                            </div>
+                          ) : (
+                            <span className="text-sm text-gray-400">—</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-4">
+                          <span className={`inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1 rounded-full ${
+                            pkg.status === "ACTIVE" 
+                              ? "bg-green-100 text-green-700" 
+                              : "bg-gray-100 text-gray-500"
+                          }`}>
+                            <span className={`w-1.5 h-1.5 rounded-full ${
+                              pkg.status === "ACTIVE" ? "bg-green-500" : "bg-gray-400"
+                            }`} />
+                            {pkg.status === "ACTIVE" ? "Active" : "Inactive"}
+                          </span>
+                        </td>
+                        <td className="px-4 py-4">
+                          <div className="flex items-center justify-center gap-1">
+                            <Link 
+                              href={`/vendor/packages/view/${pkg.slug || pkg.id}`}
+                              title="View Details"
+                              className="p-1.5 rounded-lg text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-colors"
+                            >
+                              <Eye size={15} />
+                            </Link>
+                            <button
+                              onClick={() => setSelected(pkg)}
+                              className="p-1.5 rounded-lg text-gray-400 hover:text-orange-600 hover:bg-orange-50 transition-colors"
+                              title={promo.isPromotional ? "Edit Promotion" : "Make Promotional"}
+                            >
+                              <Edit3 size={15} />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
 
-                <div className="mt-5 grid gap-3 sm:grid-cols-3">
-                  <div className="rounded-2xl bg-gray-50 px-4 py-3">
-                    <p className="text-xs uppercase tracking-wide text-gray-400">Base price</p>
-                    <p className="mt-1 text-lg font-semibold text-gray-900">{packageAmount(pkg).toLocaleString()} {packageCurrency(pkg)}</p>
-                  </div>
-                  <div className="rounded-2xl bg-orange-50 px-4 py-3">
-                    <p className="text-xs uppercase tracking-wide text-orange-400">Promotion price</p>
-                    <p className="mt-1 text-lg font-semibold text-orange-600">{promo.finalAmount.toLocaleString()} {packageCurrency(pkg)}</p>
-                  </div>
-                  <div className="rounded-2xl bg-gray-50 px-4 py-3">
-                    <p className="text-xs uppercase tracking-wide text-gray-400">Discount</p>
-                    <p className="mt-1 text-lg font-semibold text-gray-900">
-                      {promo.isPromotional ? `${promo.discountValue} ${promo.discountType === 'FLAT' ? packageCurrency(pkg) : '%'}` : 'Not set'}
-                    </p>
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
+          {/* Pagination */}
+          <Pagination
+            currentPage={currentPage}
+            totalPages={totalPages}
+            totalItems={filtered.length}
+            itemsPerPage={ITEMS_PER_PAGE}
+            onPageChange={(page) => setCurrentPage(page)}
+          />
+        </>
       )}
 
       <PromotionModal

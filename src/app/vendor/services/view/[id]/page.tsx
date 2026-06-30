@@ -18,6 +18,10 @@ import {
   ChevronLeft,
   ChevronRight,
   X,
+  Eye,
+  Plus,
+  Users,
+  Clock,
 } from 'lucide-react';
 import { vendorApi } from '@/api/vendorApi';
 
@@ -51,6 +55,72 @@ interface Service {
 }
 type ApiService = Service;
 
+interface PackageItem {
+  serviceId: string;
+}
+
+interface VendorPackage {
+  id: string;
+  title: string;
+  name?: string;
+  description?: string;
+  amount?: number;
+  currency?: string;
+  price?: number;
+  money?: { amount: number; currency: string };
+  price_unit?: string;
+  priceUnit?: string;
+  status: string;
+  itemIds?: string[];
+  items?: PackageItem[];
+  max_guests?: number;
+  duration_hours?: number;
+  imageUrl?: string;
+  isPromotional?: boolean;
+  is_promotional?: boolean;
+  promotionDiscountType?: 'FLAT' | 'PERCENTAGE' | null;
+  promotion_discount_type?: 'FLAT' | 'PERCENTAGE' | null;
+  promotionDiscountValue?: number | null;
+  promotion_discount_value?: number | null;
+}
+
+function packageBaseAmount(pkg: VendorPackage) {
+  return pkg.money?.amount ?? pkg.amount ?? pkg.price ?? 0;
+}
+
+function packageCurrency(pkg: VendorPackage) {
+  return pkg.money?.currency ?? pkg.currency ?? 'AED';
+}
+
+function promotionalMeta(pkg: VendorPackage) {
+  const isPromotional = Boolean(pkg.isPromotional || pkg.is_promotional);
+  const discountType = pkg.promotionDiscountType || pkg.promotion_discount_type || null;
+  const discountValue = pkg.promotionDiscountValue ?? pkg.promotion_discount_value ?? 0;
+  const amount = packageBaseAmount(pkg);
+
+  if (!isPromotional || !discountType || !discountValue) {
+    return { isPromotional: false, discountType, discountValue, finalAmount: amount };
+  }
+
+  const finalAmount =
+    discountType === 'FLAT'
+      ? Math.max(0, amount - discountValue)
+      : Math.max(0, amount - Math.round((amount * discountValue) / 100));
+
+  return { isPromotional: true, discountType, discountValue, finalAmount };
+}
+
+function packagePrice(pkg: VendorPackage) {
+  const amount = pkg.money?.amount ?? pkg.amount ?? pkg.price ?? 0;
+  const currency = pkg.money?.currency ?? pkg.currency ?? 'AED';
+  return `${amount.toLocaleString()} ${currency}`;
+}
+
+function packageServiceIds(pkg: VendorPackage): string[] {
+  if (pkg.items?.length) return pkg.items.map((i) => i.serviceId);
+  return pkg.itemIds ?? [];
+}
+
 const CATEGORY_COLORS: Record<string, string> = {
   cat_wedding: 'bg-pink-50 text-pink-700 border-pink-200',
   cat_corporate: 'bg-blue-50 text-blue-700 border-blue-200',
@@ -77,6 +147,8 @@ export default function ServiceDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [selectedImageIndex, setSelectedImageIndex] = useState<number | null>(null);
   const [mainImageError, setMainImageError] = useState(false);
+  const [relatedPackages, setRelatedPackages] = useState<VendorPackage[]>([]);
+  const [packagesLoading, setPackagesLoading] = useState(true);
 
   useEffect(() => {
     if (!id) return;
@@ -102,6 +174,30 @@ export default function ServiceDetailPage() {
     };
 
     fetchService();
+  }, [id]);
+
+  useEffect(() => {
+    if (!id) return;
+
+    const fetchPackages = async () => {
+      try {
+        setPackagesLoading(true);
+        const data = await vendorApi.packages.list<VendorPackage[]>();
+        setRelatedPackages(
+          (data || []).filter(
+            (pkg) =>
+              packageServiceIds(pkg).includes(id) &&
+              promotionalMeta(pkg).isPromotional
+          )
+        );
+      } catch (err) {
+        console.error('Error fetching packages:', err);
+      } finally {
+        setPackagesLoading(false);
+      }
+    };
+
+    fetchPackages();
   }, [id]);
 
   // Get all images for gallery
@@ -224,7 +320,7 @@ export default function ServiceDetailPage() {
           <div>
             <h1 className="text-2xl font-bold text-gray-900">{service.title}</h1>
             <p className="text-xs text-gray-400 mt-0.5">
-              ID: {service.id} • {service.vendor_name ? `Vendor: ${service.vendor_name}` : `Vendor ID: ${service.vendorId}`}
+             • {service.vendor_name ? `Vendor: ${service.vendor_name}` : `Vendor ID: ${service.vendorId}`}
             </p>
           </div>
         </div>
@@ -452,6 +548,150 @@ export default function ServiceDetailPage() {
           </div>
         </div>
       )}
+
+      {/* Related Packages */}
+      <div className="bg-white rounded-2xl border border-gray-100 p-5">
+        <div className="flex items-center justify-between mb-1">
+          <h2 className="text-xl font-bold text-gray-900">Available Packages</h2>
+          {!packagesLoading && relatedPackages.length > 0 && (
+            <Link
+              href={`/vendor/packages/add`}
+              className="inline-flex items-center gap-1 text-xs font-semibold text-orange-500 hover:text-orange-600"
+            >
+              <Plus size={13} />
+              Add Package
+            </Link>
+          )}
+        </div>
+        <p className="text-sm text-gray-500 mb-5">
+          Packages created from this service — fixed price, no surprises
+        </p>
+
+        {packagesLoading ? (
+          <div className="flex items-center gap-2 text-sm text-gray-400 py-4">
+            <Loader2 size={16} className="animate-spin" />
+            Loading packages...
+          </div>
+        ) : relatedPackages.length > 0 ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+            {relatedPackages.map((pkg) => (
+              <div
+                key={pkg.id}
+                className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden flex flex-col"
+              >
+                {/* Image */}
+                <div className="relative h-48 flex-shrink-0 bg-gray-100">
+                  {pkg.imageUrl || service?.image_url ? (
+                    <img
+                      src={pkg.imageUrl || service?.image_url}
+                      alt={pkg.title || pkg.name}
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center">
+                      <ImageIcon size={32} className="text-gray-300" />
+                    </div>
+                  )}
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/10 to-transparent" />
+                  <span className="absolute top-3 left-3 bg-white/20 backdrop-blur-sm text-white text-xs font-semibold px-2.5 py-1 rounded-full border border-white/30">
+                    {displayCategory}
+                  </span>
+                  <span
+                    className={`absolute top-3 right-3 text-xs font-semibold px-2.5 py-1 rounded-full ${
+                      pkg.status === 'ACTIVE'
+                        ? 'bg-green-500/90 text-white'
+                        : 'bg-gray-500/80 text-white'
+                    }`}
+                  >
+                    {pkg.status === 'ACTIVE' ? 'Active' : 'Inactive'}
+                  </span>
+                  {promotionalMeta(pkg).isPromotional && (
+                    <span className="absolute top-3 left-1/2 -translate-x-1/2 bg-orange-500 text-white text-xs font-bold px-2.5 py-1 rounded-full shadow">
+                      {promotionalMeta(pkg).discountType === 'FLAT'
+                        ? `${promotionalMeta(pkg).discountValue} ${packageCurrency(pkg)} OFF`
+                        : `${promotionalMeta(pkg).discountValue}% OFF`}
+                    </span>
+                  )}
+                  <div className="absolute bottom-3 left-3 right-3">
+                    <p className="text-white/70 text-xs">{service.vendor_name}</p>
+                  </div>
+                </div>
+
+                {/* Body */}
+                <div className="p-4 flex flex-col flex-1">
+                  {promotionalMeta(pkg).isPromotional && (
+                    <span className="inline-flex items-center gap-1 text-[11px] font-bold text-orange-600 uppercase tracking-wide mb-1.5 w-fit">
+                      <Tag size={11} />
+                      Promotional Package
+                    </span>
+                  )}
+                  <p className="font-bold text-gray-900 text-base leading-tight mb-2">
+                    {pkg.title || pkg.name}
+                  </p>
+                  {pkg.description && (
+                    <p className="text-gray-500 text-sm mb-3 leading-relaxed line-clamp-2">
+                      {pkg.description}
+                    </p>
+                  )}
+
+                  {/* Meta chips */}
+                  {(pkg.max_guests || pkg.duration_hours) && (
+                    <div className="flex flex-wrap gap-3 mb-3 text-xs text-gray-500">
+                      {pkg.max_guests && (
+                        <span className="flex items-center gap-1">
+                          <Users size={14} />
+                          Up to {pkg.max_guests} guests
+                        </span>
+                      )}
+                      {pkg.duration_hours && (
+                        <span className="flex items-center gap-1">
+                          <Clock size={14} />
+                          {pkg.duration_hours}h
+                        </span>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Price */}
+                  <div className="mt-auto pt-1">
+                    {promotionalMeta(pkg).isPromotional ? (
+                      <div className="flex items-baseline gap-2 flex-wrap">
+                        <span className="text-2xl font-bold text-orange-600">
+                          {promotionalMeta(pkg).finalAmount.toLocaleString()} {packageCurrency(pkg)}
+                        </span>
+                        <span className="text-sm text-gray-400 line-through">
+                          {packageBaseAmount(pkg).toLocaleString()} {packageCurrency(pkg)}
+                        </span>
+                        <span className="text-xs font-semibold text-orange-600 bg-orange-50 px-2 py-0.5 rounded-full">
+                          {promotionalMeta(pkg).discountType === 'FLAT'
+                            ? `${promotionalMeta(pkg).discountValue} ${packageCurrency(pkg)} off`
+                            : `${promotionalMeta(pkg).discountValue}% off`}
+                        </span>
+                      </div>
+                    ) : (
+                      <span className="text-2xl font-bold text-gray-900">
+                        {packagePrice(pkg)}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="text-center py-8">
+            <Package size={32} className="text-gray-300 mx-auto" />
+            <p className="text-sm text-gray-500 mb-2 mt-3">No Package created yet.</p>
+            <Link
+              href={`/vendor/packages/add`}
+              className="inline-flex items-center gap-1.5 text-sm font-semibold text-orange-500 hover:text-orange-600"
+            >
+              <Plus size={14} />
+              Create Package
+            </Link>
+          </div>
+        )}
+      </div>
 
       {/* Vendor Info */}
       {(service.vendor_name || service.vendor_email || service.vendor_phone) && (

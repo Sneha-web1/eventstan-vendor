@@ -255,6 +255,12 @@ export default function EditServicePage() {
       setSaving(true);
       setError("");
 
+      const newGalleryUrls: string[] = [];
+      for (const image of galleryImages) {
+        const result = await vendorApi.uploads.image(image.file, "services");
+        newGalleryUrls.push(result.url);
+      }
+
       await vendorApi.services.update(id, {
         title: form.title.trim(),
         slug: slugify(form.slug),
@@ -267,7 +273,7 @@ export default function EditServicePage() {
         imageUrl: form.imageUrl || undefined,
         status: form.status,
         tags: form.tags,
-        gallery: existingGallery,
+        gallery: [...existingGallery, ...newGalleryUrls],
         features: form.features,
       });
 
