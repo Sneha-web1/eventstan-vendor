@@ -31,7 +31,7 @@ const PRICE_UNITS = [
   "per person",
   "per hour",
   "per day",
-  "per package",
+  "per Piece",
 ] as const;
 
 const emptyForm = {
@@ -72,18 +72,31 @@ export default function AddServicePage() {
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState("");
   const [vendorId, setVendorId] = useState("");
-  const [categories, setCategories] = useState<Array<{ id: string; name: string }>>([]);
-  const [mainImage, setMainImage] = useState<{ file: File | null; preview: string }>({ file: null, preview: "" });
-  const [galleryImages, setGalleryImages] = useState<{ file: File; preview: string }[]>([]);
+  const [categories, setCategories] = useState<
+    Array<{ id: string; name: string }>
+  >([]);
+  const [mainImage, setMainImage] = useState<{
+    file: File | null;
+    preview: string;
+  }>({ file: null, preview: "" });
+  const [galleryImages, setGalleryImages] = useState<
+    { file: File; preview: string }[]
+  >([]);
   const [tagsInput, setTagsInput] = useState("");
   const [featuresInput, setFeaturesInput] = useState("");
   const [slugEdited, setSlugEdited] = useState(false);
-  const [slugStatus, setSlugStatus] = useState<"idle" | "checking" | "available" | "taken">("idle");
+  const [slugStatus, setSlugStatus] = useState<
+    "idle" | "checking" | "available" | "taken"
+  >("idle");
 
   useEffect(() => {
     const id = getVendorId();
     if (!id) {
-      queueMicrotask(() => setError("Vendor information not found. Please ensure you are logged in as a vendor."));
+      queueMicrotask(() =>
+        setError(
+          "Vendor information not found. Please ensure you are logged in as a vendor.",
+        ),
+      );
     } else {
       queueMicrotask(() => setVendorId(id));
     }
@@ -91,8 +104,12 @@ export default function AddServicePage() {
     const fetchMasterData = async () => {
       try {
         const [countries, categoryRows] = await Promise.all([
-          vendorApi.masterData.countries<Array<{ code: string; defaultCurrency: string }>>(),
-          vendorApi.masterData.categories<Array<{ id: string; name: string }>>(),
+          vendorApi.masterData.countries<
+            Array<{ code: string; defaultCurrency: string }>
+          >(),
+          vendorApi.masterData.categories<
+            Array<{ id: string; name: string }>
+          >(),
         ]);
         const uae = countries.find((country) => country.code === "AE");
         setCategories(categoryRows);
@@ -122,7 +139,10 @@ export default function AddServicePage() {
     };
   }, [galleryImages, mainImage.preview]);
 
-  const setFormField = <K extends keyof typeof form>(key: K, value: (typeof form)[K]) => {
+  const setFormField = <K extends keyof typeof form>(
+    key: K,
+    value: (typeof form)[K],
+  ) => {
     setForm((current) => ({ ...current, [key]: value }));
     setError("");
   };
@@ -142,7 +162,11 @@ export default function AddServicePage() {
     setSlugStatus("checking");
     const timer = window.setTimeout(async () => {
       try {
-        const result = await vendorApi.services.checkSlug<{ slug: string; available: boolean }>(candidate);
+        // Option 1: Use a generic fetch
+        const response = await fetch(
+          `/api/services/check-slug?slug=${candidate}`,
+        );
+        const result = await response.json();
         setForm((current) => ({ ...current, slug: result.slug }));
         setSlugStatus(result.available ? "available" : "taken");
       } catch {
@@ -185,7 +209,9 @@ export default function AddServicePage() {
     if (image?.preview.startsWith("blob:")) {
       URL.revokeObjectURL(image.preview);
     }
-    setGalleryImages((prev) => prev.filter((_, currentIndex) => currentIndex !== index));
+    setGalleryImages((prev) =>
+      prev.filter((_, currentIndex) => currentIndex !== index),
+    );
   };
 
   const addTag = () => {
@@ -196,7 +222,10 @@ export default function AddServicePage() {
   };
 
   const removeTag = (tag: string) => {
-    setFormField("tags", form.tags.filter((current) => current !== tag));
+    setFormField(
+      "tags",
+      form.tags.filter((current) => current !== tag),
+    );
   };
 
   const addFeature = () => {
@@ -207,7 +236,10 @@ export default function AddServicePage() {
   };
 
   const removeFeature = (feature: string) => {
-    setFormField("features", form.features.filter((current) => current !== feature));
+    setFormField(
+      "features",
+      form.features.filter((current) => current !== feature),
+    );
   };
 
   const uploadGalleryImages = async (): Promise<string[]> => {
@@ -226,8 +258,10 @@ export default function AddServicePage() {
     if (slugStatus === "taken") return "Service slug is already in use.";
     if (!form.description.trim()) return "Description is required.";
     if (!form.city.trim()) return "City is required.";
-    if (!form.amount || Number(form.amount) <= 0) return "Valid starting price is required.";
-    if (form.priceMax && Number(form.priceMax) < Number(form.amount)) return "Max price cannot be less than starting price.";
+    if (!form.amount || Number(form.amount) <= 0)
+      return "Valid starting price is required.";
+    if (form.priceMax && Number(form.priceMax) < Number(form.amount))
+      return "Max price cannot be less than starting price.";
     return "";
   };
 
@@ -278,11 +312,16 @@ export default function AddServicePage() {
   return (
     <div className="max-w-5xl mx-auto space-y-4 pb-3">
       <div className="flex items-center gap-3">
-        <button onClick={() => router.back()} className="flex h-10 w-10 items-center justify-center rounded-2xl border border-gray-200 bg-white text-gray-600 shadow-sm transition hover:-translate-y-0.5 hover:bg-gray-50">
+        <button
+          onClick={() => router.back()}
+          className="flex h-10 w-10 items-center justify-center rounded-2xl border border-gray-200 bg-white text-gray-600 shadow-sm transition hover:-translate-y-0.5 hover:bg-gray-50"
+        >
           <ArrowLeft size={18} />
         </button>
         <div>
-          <h1 className="text-xl font-semibold tracking-tight text-gray-950">Add New Service</h1>
+          <h1 className="text-xl font-semibold tracking-tight text-gray-950">
+            Add New Service
+          </h1>
           <p className="text-sm text-gray-500">
             Create a service page that vendors can attach packages to later.
           </p>
@@ -297,13 +336,17 @@ export default function AddServicePage() {
 
       <div className="space-y-4">
         <div className="bg-white rounded-[22px] border border-gray-100 p-5 shadow-sm space-y-4">
-          <h2 className="font-semibold text-gray-800 text-sm uppercase tracking-wide">Basic Information</h2>
+          <h2 className="font-semibold text-gray-800 text-sm uppercase tracking-wide">
+            Basic Information
+          </h2>
 
           <div className="grid grid-cols-1 lg:grid-cols-[1.05fr_0.95fr] gap-4">
             <div>
               <div className="space-y-4">
                 <div>
-                  <label className="text-xs font-semibold text-gray-700 mb-1.5 block">Category *</label>
+                  <label className="text-xs font-semibold text-gray-700 mb-1.5 block">
+                    Category *
+                  </label>
                   <select
                     value={form.categoryId}
                     onChange={(e) => setFormField("categoryId", e.target.value)}
@@ -319,7 +362,9 @@ export default function AddServicePage() {
                 </div>
 
                 <div>
-                  <label className="text-xs font-semibold text-gray-700 mb-1.5 block">Service Title *</label>
+                  <label className="text-xs font-semibold text-gray-700 mb-1.5 block">
+                    Service Title *
+                  </label>
                   <input
                     value={form.title}
                     onChange={(e) => setFormField("title", e.target.value)}
@@ -329,7 +374,9 @@ export default function AddServicePage() {
                 </div>
 
                 <div>
-                  <label className="text-xs font-semibold text-gray-700 mb-1.5 block">Service Slug *</label>
+                  <label className="text-xs font-semibold text-gray-700 mb-1.5 block">
+                    Service Slug *
+                  </label>
                   <input
                     value={form.slug}
                     onChange={(e) => {
@@ -339,19 +386,27 @@ export default function AddServicePage() {
                     className="w-full px-4 py-2.5 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-200 focus:border-orange-400"
                     placeholder="wedding-decor"
                   />
-                  <p className={`mt-1 text-xs ${slugStatus === "taken" ? "text-red-500" : slugStatus === "available" ? "text-emerald-600" : "text-gray-400"}`}>
-                    {slugStatus === "checking" && "Checking slug availability..."}
+                  <p
+                    className={`mt-1 text-xs ${slugStatus === "taken" ? "text-red-500" : slugStatus === "available" ? "text-emerald-600" : "text-gray-400"}`}
+                  >
+                    {slugStatus === "checking" &&
+                      "Checking slug availability..."}
                     {slugStatus === "available" && "Slug is available"}
                     {slugStatus === "taken" && "Slug is already taken"}
-                    {slugStatus === "idle" && "This slug will be used in the customer service URL."}
+                    {slugStatus === "idle" &&
+                      "This slug will be used in the customer service URL."}
                   </p>
                 </div>
 
                 <div>
-                  <label className="text-xs font-semibold text-gray-700 mb-1.5 block">Description *</label>
+                  <label className="text-xs font-semibold text-gray-700 mb-1.5 block">
+                    Description *
+                  </label>
                   <textarea
                     value={form.description}
-                    onChange={(e) => setFormField("description", e.target.value)}
+                    onChange={(e) =>
+                      setFormField("description", e.target.value)
+                    }
                     rows={4}
                     className="w-full px-4 py-3 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-200 focus:border-orange-400 resize-none"
                     placeholder="Describe the service. Customers will book packages under this service."
@@ -364,7 +419,9 @@ export default function AddServicePage() {
               <div className="space-y-4">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
-                    <label className="text-xs font-semibold text-gray-700 mb-1.5 block">City *</label>
+                    <label className="text-xs font-semibold text-gray-700 mb-1.5 block">
+                      City *
+                    </label>
                     <select
                       value={form.city}
                       onChange={(e) => setFormField("city", e.target.value)}
@@ -380,10 +437,14 @@ export default function AddServicePage() {
                   </div>
 
                   <div>
-                    <label className="text-xs font-semibold text-gray-700 mb-1.5 block">Price Unit *</label>
+                    <label className="text-xs font-semibold text-gray-700 mb-1.5 block">
+                      Price Unit *
+                    </label>
                     <select
                       value={form.priceUnit}
-                      onChange={(e) => setFormField("priceUnit", e.target.value)}
+                      onChange={(e) =>
+                        setFormField("priceUnit", e.target.value)
+                      }
                       className="w-full px-4 py-2.5 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-200 focus:border-orange-400"
                     >
                       {PRICE_UNITS.map((unit) => (
@@ -397,7 +458,9 @@ export default function AddServicePage() {
 
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <div>
-                    <label className="text-xs font-semibold text-gray-700 mb-1.5 block">Starting Price *</label>
+                    <label className="text-xs font-semibold text-gray-700 mb-1.5 block">
+                      Starting Price *
+                    </label>
                     <input
                       type="number"
                       min="0"
@@ -409,7 +472,9 @@ export default function AddServicePage() {
                   </div>
 
                   <div>
-                    <label className="text-xs font-semibold text-gray-700 mb-1.5 block">Max Price</label>
+                    <label className="text-xs font-semibold text-gray-700 mb-1.5 block">
+                      Max Price
+                    </label>
                     <input
                       type="number"
                       min="0"
@@ -421,10 +486,14 @@ export default function AddServicePage() {
                   </div>
 
                   <div>
-                    <label className="text-xs font-semibold text-gray-700 mb-1.5 block">Currency *</label>
+                    <label className="text-xs font-semibold text-gray-700 mb-1.5 block">
+                      Currency *
+                    </label>
                     <input
                       value={form.currency}
-                      onChange={(e) => setFormField("currency", e.target.value.toUpperCase())}
+                      onChange={(e) =>
+                        setFormField("currency", e.target.value.toUpperCase())
+                      }
                       className="w-full px-4 py-2.5 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-200 focus:border-orange-400"
                       placeholder="AED"
                     />
@@ -436,17 +505,23 @@ export default function AddServicePage() {
         </div>
 
         <div className="bg-white rounded-[22px] border border-gray-100 p-5 shadow-sm space-y-4">
-          <h2 className="font-semibold text-gray-800 text-sm uppercase tracking-wide">Images</h2>
+          <h2 className="font-semibold text-gray-800 text-sm uppercase tracking-wide">
+            Images
+          </h2>
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             <div>
-              <label className="text-xs font-semibold text-gray-700 mb-2 block">Main Image</label>
+              <label className="text-xs font-semibold text-gray-700 mb-2 block">
+                Main Image
+              </label>
               <input
                 ref={fileRef}
                 type="file"
                 accept="image/*"
                 className="hidden"
-                onChange={(e) => void handleMainImageUpload(e.target.files?.[0])}
+                onChange={(e) =>
+                  void handleMainImageUpload(e.target.files?.[0])
+                }
               />
               <button
                 type="button"
@@ -454,10 +529,24 @@ export default function AddServicePage() {
                 className="w-full border border-dashed border-gray-300 rounded-2xl px-5 py-6 text-center hover:border-orange-300 hover:bg-orange-50/40 transition-colors"
               >
                 {mainImage.preview ? (
-                  <img src={mainImage.preview} alt="Main preview" className="w-full max-h-56 object-cover rounded-xl" />
+                  <img
+                    src={mainImage.preview}
+                    alt="Main preview"
+                    className="w-full max-h-56 object-cover rounded-xl"
+                  />
                 ) : (
                   <div className="space-y-2 text-gray-500">
-                    {uploading ? <Loader2 size={24} className="animate-spin mx-auto text-orange-500" /> : <ImagePlus size={24} className="mx-auto text-orange-400" />}
+                    {uploading ? (
+                      <Loader2
+                        size={24}
+                        className="animate-spin mx-auto text-orange-500"
+                      />
+                    ) : (
+                      <ImagePlus
+                        size={24}
+                        className="mx-auto text-orange-400"
+                      />
+                    )}
                     <p className="text-sm font-medium">Upload main image</p>
                   </div>
                 )}
@@ -465,7 +554,9 @@ export default function AddServicePage() {
             </div>
 
             <div>
-              <label className="text-xs font-semibold text-gray-700 mb-2 block">Gallery Images</label>
+              <label className="text-xs font-semibold text-gray-700 mb-2 block">
+                Gallery Images
+              </label>
               <input
                 ref={galleryInputRef}
                 type="file"
@@ -480,15 +571,27 @@ export default function AddServicePage() {
                 className="w-full border border-dashed border-gray-300 rounded-2xl px-5 py-6 text-center hover:border-orange-300 hover:bg-orange-50/40 transition-colors"
               >
                 <Upload size={22} className="mx-auto text-orange-400 mb-2" />
-                <p className="text-sm font-medium text-gray-700">Add gallery images</p>
-                <p className="text-xs text-gray-500 mt-1">These support the service page. Booking still happens through packages.</p>
+                <p className="text-sm font-medium text-gray-700">
+                  Add gallery images
+                </p>
+                <p className="text-xs text-gray-500 mt-1">
+                  These support the service page. Booking still happens through
+                  packages.
+                </p>
               </button>
 
               {galleryImages.length > 0 && (
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mt-4">
                   {galleryImages.map((image, index) => (
-                    <div key={`${image.file.name}-${index}`} className="relative rounded-xl overflow-hidden border border-gray-100 bg-gray-50">
-                      <img src={image.preview} alt={`Gallery ${index + 1}`} className="w-full h-24 object-cover" />
+                    <div
+                      key={`${image.file.name}-${index}`}
+                      className="relative rounded-xl overflow-hidden border border-gray-100 bg-gray-50"
+                    >
+                      <img
+                        src={image.preview}
+                        alt={`Gallery ${index + 1}`}
+                        className="w-full h-24 object-cover"
+                      />
                       <button
                         type="button"
                         onClick={() => removeGalleryImage(index)}
@@ -507,7 +610,9 @@ export default function AddServicePage() {
         <div className="bg-white rounded-[22px] border border-gray-100 p-5 shadow-sm">
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
             <div className="space-y-4">
-              <h2 className="font-semibold text-gray-800 text-sm uppercase tracking-wide">Tags</h2>
+              <h2 className="font-semibold text-gray-800 text-sm uppercase tracking-wide">
+                Tags
+              </h2>
               <div className="flex gap-2">
                 <input
                   value={tagsInput}
@@ -532,9 +637,16 @@ export default function AddServicePage() {
               {form.tags.length > 0 && (
                 <div className="flex flex-wrap gap-2">
                   {form.tags.map((tag) => (
-                    <span key={tag} className="inline-flex items-center gap-1 px-3 py-1.5 rounded-full bg-orange-50 text-orange-700 text-xs font-medium">
+                    <span
+                      key={tag}
+                      className="inline-flex items-center gap-1 px-3 py-1.5 rounded-full bg-orange-50 text-orange-700 text-xs font-medium"
+                    >
                       {tag}
-                      <button type="button" onClick={() => removeTag(tag)} className="text-orange-500 hover:text-orange-700">
+                      <button
+                        type="button"
+                        onClick={() => removeTag(tag)}
+                        className="text-orange-500 hover:text-orange-700"
+                      >
                         <X size={12} />
                       </button>
                     </span>
@@ -544,8 +656,12 @@ export default function AddServicePage() {
             </div>
 
             <div className="space-y-4">
-              <h2 className="font-semibold text-gray-800 text-sm uppercase tracking-wide">What's Included</h2>
-              <p className="text-xs text-gray-500">Add multiple included items, one by one.</p>
+              <h2 className="font-semibold text-gray-800 text-sm uppercase tracking-wide">
+                What's Included
+              </h2>
+              <p className="text-xs text-gray-500">
+                Add multiple included items, one by one.
+              </p>
               <div className="flex gap-2">
                 <input
                   value={featuresInput}
@@ -570,9 +686,16 @@ export default function AddServicePage() {
               {form.features.length > 0 && (
                 <div className="flex flex-wrap gap-2">
                   {form.features.map((feature) => (
-                    <span key={feature} className="inline-flex items-center gap-1 px-3 py-1.5 rounded-full bg-blue-50 text-blue-700 text-xs font-medium">
+                    <span
+                      key={feature}
+                      className="inline-flex items-center gap-1 px-3 py-1.5 rounded-full bg-blue-50 text-blue-700 text-xs font-medium"
+                    >
                       {feature}
-                      <button type="button" onClick={() => removeFeature(feature)} className="text-blue-500 hover:text-blue-700">
+                      <button
+                        type="button"
+                        onClick={() => removeFeature(feature)}
+                        className="text-blue-500 hover:text-blue-700"
+                      >
                         <X size={12} />
                       </button>
                     </span>
@@ -598,7 +721,11 @@ export default function AddServicePage() {
           disabled={saving}
           className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-orange-500 text-white text-sm font-semibold hover:bg-orange-600 disabled:opacity-60"
         >
-          {saving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
+          {saving ? (
+            <Loader2 size={16} className="animate-spin" />
+          ) : (
+            <Save size={16} />
+          )}
           Save Service
         </button>
       </div>

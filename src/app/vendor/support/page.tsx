@@ -32,6 +32,23 @@ interface SupportTicket {
   vendor: { companyName: string };
 }
 
+// `vendorApi` does not (yet) declare a `support` namespace in its type definition.
+// This local type lets us call `list`/`create` here without editing vendorApi.ts.
+// Every call is guarded at runtime with a typeof check so this page fails with a
+// clear message instead of a raw "undefined is not a function" crash if the
+// backend/client method isn't wired up yet.
+interface VendorSupportApi {
+  list: <T = unknown[]>() => Promise<T>;
+  create: <T = unknown>(payload: {
+    subject: string;
+    message: string;
+    attachments: string[];
+  }) => Promise<T>;
+}
+type VendorApiWithSupport = typeof vendorApi & {
+  support?: Partial<VendorSupportApi>;
+};
+
 const statusLabel: Record<SupportStatus, string> = {
   OPEN: "Open",
   IN_PROGRESS: "In progress",
@@ -52,6 +69,8 @@ const statusClass: Record<SupportStatus, string> = {
 
 export default function VendorSupportPage() {
   const router = useRouter();
+  const supportApi = (vendorApi as VendorApiWithSupport).support;
+
   const [tickets, setTickets] = useState<SupportTicket[]>([]);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
@@ -62,10 +81,18 @@ export default function VendorSupportPage() {
   const [files, setFiles] = useState<File[]>([]);
 
   const fetchTickets = async () => {
+    if (typeof supportApi?.list !== "function") {
+      setLoading(false);
+      setError(
+        "Support tickets aren't available yet. Add a `support.list` method to vendorApi.",
+      );
+      return;
+    }
+
     try {
       setLoading(true);
       setError("");
-      const data = await vendorApi.support.list<SupportTicket[]>();
+      const data = await supportApi.list<SupportTicket[]>();
       setTickets(data);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Unable to load support tickets");
@@ -101,12 +128,19 @@ export default function VendorSupportPage() {
       return;
     }
 
+    if (typeof supportApi?.create !== "function") {
+      setError(
+        "Creating tickets isn't available yet. Add a `support.create` method to vendorApi.",
+      );
+      return;
+    }
+
     setCreating(true);
     setError("");
     setSuccess("");
     try {
       const attachments = await uploadAttachments();
-      const created = await vendorApi.support.create<SupportTicket>({
+      const created = await supportApi.create<SupportTicket>({
         subject: subject.trim(),
         message: message.trim(),
         attachments,

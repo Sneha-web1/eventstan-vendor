@@ -14,7 +14,6 @@ import {
   Loader2,
   Package as PackageIcon,
   Plus,
-  Search,
   ToggleLeft,
   ToggleRight,
   Trash2,
@@ -276,13 +275,52 @@ export default function PackagesPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState("");
-  const [search, setSearch] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("title");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
   const [currentPage, setCurrentPage] = useState(1);
   const [deleteTarget, setDeleteTarget] = useState<ApiPackage | null>(null);
   const [toggleTarget, setToggleTarget] = useState<ApiPackage | null>(null);
   const [viewTarget, setViewTarget] = useState<ApiPackage | null>(null);
+  
+  // Filter states
+  const [categoryFilter, setCategoryFilter] = useState<string>("all");
+  const [serviceFilter, setServiceFilter] = useState<string>("all");
+
+  // Extract unique categories from packages
+  const categories = useMemo(() => {
+    const cats = new Set<string>();
+    packages.forEach(pkg => {
+      const services = packageServices(pkg);
+      services.forEach(item => {
+        if (item.service?.category?.name) {
+          cats.add(item.service.category.name);
+        }
+      });
+    });
+    return Array.from(cats).sort();
+  }, [packages]);
+
+  // Extract unique services based on selected category
+  const services = useMemo(() => {
+    const svcs = new Set<string>();
+    packages.forEach(pkg => {
+      const pkgServices = packageServices(pkg);
+      pkgServices.forEach(item => {
+        // If category filter is selected, only show services from that category
+        if (categoryFilter === "all" || item.service?.category?.name === categoryFilter) {
+          if (item.service?.title) {
+            svcs.add(item.service.title);
+          }
+        }
+      });
+    });
+    return Array.from(svcs).sort();
+  }, [packages, categoryFilter]);
+
+  // Reset service filter when category changes
+  useEffect(() => {
+    setServiceFilter("all");
+  }, [categoryFilter]);
 
   const fetchPackages = async () => {
     try {
@@ -300,10 +338,10 @@ export default function PackagesPage() {
     void fetchPackages();
   }, []);
 
-  // Reset to page 1 when search or sort changes
+  // Reset to page 1 when filters or sort changes
   useEffect(() => {
     setCurrentPage(1);
-  }, [search, sortKey, sortDir]);
+  }, [categoryFilter, serviceFilter, sortKey, sortDir]);
 
   const toggleSort = (key: SortKey) => {
     if (sortKey === key) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
@@ -314,15 +352,28 @@ export default function PackagesPage() {
   };
 
   const filtered = useMemo(() => {
-    const q = search.toLowerCase().trim();
     return [...packages]
-      .filter(
-        (pkg) =>
-          !q ||
-          pkg.title.toLowerCase().includes(q) ||
-          pkg.id.toLowerCase().includes(q) ||
-          (pkg.description || "").toLowerCase().includes(q),
-      )
+      .filter((pkg) => {
+        const pkgServices = packageServices(pkg);
+        
+        // Filter by category
+        if (categoryFilter !== "all") {
+          const hasCategory = pkgServices.some(
+            item => item.service?.category?.name === categoryFilter
+          );
+          if (!hasCategory) return false;
+        }
+        
+        // Filter by service
+        if (serviceFilter !== "all") {
+          const hasService = pkgServices.some(
+            item => item.service?.title === serviceFilter
+          );
+          if (!hasService) return false;
+        }
+        
+        return true;
+      })
       .sort((a, b) => {
         let cmp = 0;
         if (sortKey === "title") cmp = a.title.localeCompare(b.title);
@@ -332,7 +383,7 @@ export default function PackagesPage() {
           cmp = packageServices(a).length - packageServices(b).length;
         return sortDir === "asc" ? cmp : -cmp;
       });
-  }, [packages, search, sortKey, sortDir]);
+  }, [packages, categoryFilter, serviceFilter, sortKey, sortDir]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / ITEMS_PER_PAGE));
   const paginated = filtered.slice(
@@ -449,18 +500,61 @@ export default function PackagesPage() {
         </div>
       </div>
 
-      {/* Search */}
-      <div className="relative">
-        <Search
-          size={15}
-          className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400"
-        />
-        <input
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search packages by title, description, or ID..."
-          className="w-full pl-10 pr-4 py-2.5 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-200 focus:border-orange-400 bg-white"
-        />
+      {/* Filters */}
+      <div className="flex flex-wrap gap-4">
+        <div className="flex-1 min-w-[200px]">
+          <label className="block text-xs font-semibold text-gray-500 uppercase mb-1.5">
+            Category
+          </label>
+          <select
+            value={categoryFilter}
+            onChange={(e) => setCategoryFilter(e.target.value)}
+            className="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-200 focus:border-orange-400 bg-white"
+          >
+            <option value="all">All Categories</option>
+            {categories.map((cat) => (
+              <option key={cat} value={cat}>
+                {cat}
+              </option>
+            ))}
+          </select>
+        </div>
+        
+        <div className="flex-1 min-w-[200px]">
+          <label className="block text-xs font-semibold text-gray-500 uppercase mb-1.5">
+            Service
+          </label>
+          <select
+            value={serviceFilter}
+            onChange={(e) => setServiceFilter(e.target.value)}
+            className="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-200 focus:border-orange-400 bg-white"
+          >
+            <option value="all">All Services</option>
+            {services.map((svc) => (
+              <option key={svc} value={svc}>
+                {svc}
+              </option>
+            ))}
+          </select>
+          {categoryFilter !== "all" && services.length === 0 && (
+            <p className="text-xs text-gray-400 mt-1">
+              No services available in this category
+            </p>
+          )}
+        </div>
+        
+        {/* Clear Filters Button */}
+        {(categoryFilter !== "all" || serviceFilter !== "all") && (
+          <button
+            onClick={() => {
+              setCategoryFilter("all");
+              setServiceFilter("all");
+            }}
+            className="self-end px-4 py-2 text-sm font-medium text-gray-600 hover:text-gray-900 bg-gray-100 hover:bg-gray-200 rounded-xl transition-colors"
+          >
+            Clear Filters ✕
+          </button>
+        )}
       </div>
 
       {/* Table */}
@@ -470,7 +564,9 @@ export default function PackagesPage() {
             <Layers size={36} className="mx-auto mb-3 opacity-30" />
             <p className="font-medium">No packages found</p>
             <p className="text-sm mt-1">
-              {search ? "Try clearing search." : "Create your first package."}
+              {categoryFilter !== "all" || serviceFilter !== "all" 
+                ? "Try clearing filters." 
+                : "Create your first package."}
             </p>
           </div>
         ) : (

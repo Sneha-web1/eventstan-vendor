@@ -1,30 +1,37 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import {
   AlertTriangle,
   ArrowLeft,
+  Calendar,
   CheckCircle2,
+  ChevronRight,
+  Clock,
   Edit3,
-  Loader2,
+  Mail,
+  MapPin,
   Package as PackageIcon,
+  Phone,
+  Star,
+  Tag,
+  Truck,
+  Users,
+  X,
+  Loader2,
   ToggleLeft,
   ToggleRight,
   Trash2,
-  X,
-  Clock,
-  Users,
-  Star,
-  Calendar,
+  Eye,
   Building2,
-  Tag,
   Sparkles,
-  Gift,
   Layers,
   Info,
-  Eye,
+  Image as ImageIcon,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 import { vendorApi } from "@/api/vendorApi";
 
@@ -48,6 +55,9 @@ interface Vendor {
   businessName?: string;
   companyName?: string;
   vendorName?: string;
+  phone?: string;
+  email?: string;
+  address?: string;
 }
 
 interface ApiPackage {
@@ -67,19 +77,37 @@ interface ApiPackage {
   itemIds?: string[];
   items?: ApiPackageItem[];
   inclusions?: string[];
+  includedItems?: string[];
   features?: string[];
   max_guests?: number;
+  maxGuests?: number;
   duration_hours?: number;
+  durationHours?: number;
   is_popular?: boolean;
+  isPopular?: boolean;
   is_promotional?: boolean;
+  isPromotional?: boolean;
   promotion_discount_type?: string | null;
+  promotionDiscountType?: string | null;
   promotion_discount_value?: number | null;
+  promotionDiscountValue?: number | null;
   createdAt?: string;
   updatedAt?: string;
   created_at?: string;
   showOnHomepage?: boolean;
+  show_on_homepage?: boolean;
   exactPrice?: number;
   exact_price?: number;
+  vendorPhone?: string;
+  vendorEmail?: string;
+  imageUrl?: string;
+  image_url?: string;
+  minGuests?: number;
+  min_order?: number;
+  original_price?: number;
+  promotional_price?: number;
+  promotionalPrice?: number;
+  service_id?: string;
 }
 
 function packageAmount(pkg: ApiPackage) {
@@ -87,21 +115,7 @@ function packageAmount(pkg: ApiPackage) {
 }
 
 function packageCurrency(pkg: ApiPackage) {
-  return pkg.money?.currency ?? pkg.currency ?? "USD";
-}
-
-function packageServices(pkg: ApiPackage): ApiPackageItem[] {
-  if (pkg.items?.length) return pkg.items;
-  return (pkg.itemIds ?? []).map((serviceId) => ({ serviceId }));
-}
-
-function getVendorName(pkg: ApiPackage, fallback?: string): string {
-  if (pkg.vendor?.businessName) return pkg.vendor.businessName;
-  if (pkg.vendor?.companyName) return pkg.vendor.companyName;
-  if (pkg.vendor?.vendorName) return pkg.vendor.vendorName;
-  if (pkg.vendor?.name) return pkg.vendor.name;
-  if (fallback) return fallback;
-  return "Vendor";
+  return pkg.money?.currency ?? pkg.currency ?? "AED";
 }
 
 export default function PackageViewPage() {
@@ -113,41 +127,60 @@ export default function PackageViewPage() {
   const [success, setSuccess] = useState("");
   const [deleteConfirm, setDeleteConfirm] = useState(false);
   const [toggleConfirm, setToggleConfirm] = useState(false);
-  const [activeTab, setActiveTab] = useState<"overview" | "services" | "details">("overview");
-  const [myVendorName, setMyVendorName] = useState<string>("");
+  const [showAllInclusions, setShowAllInclusions] = useState(false);
 
   const packageId = params.id as string;
+  
+  const hasFetched = useRef(false);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
-  useEffect(() => {
-    const fetchPackage = async () => {
-      try {
-        setLoading(true);
-        setError(null);
-        const data = await vendorApi.packages.get<ApiPackage>(packageId);
+  const fetchPackage = useCallback(async () => {
+    if (hasFetched.current) return;
+    
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    
+    const abortController = new AbortController();
+    abortControllerRef.current = abortController;
+    
+    try {
+      setLoading(true);
+      setError(null);
+      
+      const data = await vendorApi.packages.get<ApiPackage>(packageId);
+      
+      if (!abortController.signal.aborted) {
         setPkg(data);
-      } catch (err) {
+        hasFetched.current = true;
+      }
+    } catch (err) {
+      if (err instanceof Error && err.name === 'AbortError') {
+        return;
+      }
+      if (!abortController.signal.aborted) {
         setError(err instanceof Error ? err.message : "Failed to load package details");
-      } finally {
+      }
+    } finally {
+      if (!abortController.signal.aborted) {
         setLoading(false);
       }
-    };
-
-    if (packageId) {
-      fetchPackage();
     }
   }, [packageId]);
 
   useEffect(() => {
-    const fetchVendorName = async () => {
-      try {
-        const profile = await vendorApi.profile.get<{ companyName?: string; name?: string }>();
-        setMyVendorName(profile?.companyName || profile?.name || "");
-      } catch {
-        // ignore — fall back to default label
+    hasFetched.current = false;
+    
+    if (packageId) {
+      fetchPackage();
+    }
+    
+    return () => {
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
       }
     };
-    fetchVendorName();
-  }, []);
+  }, [packageId, fetchPackage]);
 
   const handleToggle = async () => {
     if (!pkg) return;
@@ -184,7 +217,6 @@ export default function PackageViewPage() {
             <div className="absolute inset-0 border-4 border-orange-500 rounded-full border-t-transparent animate-spin"></div>
           </div>
           <p className="text-gray-500 font-medium">Loading package details...</p>
-          <p className="text-sm text-gray-400 mt-1">Please wait</p>
         </div>
       </div>
     );
@@ -208,486 +240,307 @@ export default function PackageViewPage() {
     );
   }
 
-  const services = packageServices(pkg);
   const amount = packageAmount(pkg);
   const currency = packageCurrency(pkg);
-  const vendorName = getVendorName(pkg, myVendorName);
   const packageName = pkg.title || pkg.name || "Package";
+  
+  const includedItems = pkg.inclusions || pkg.includedItems || [];
+  const features = pkg.features || [];
+  
+  const maxGuests = pkg.maxGuests ?? pkg.max_guests ?? null;
+  const duration = pkg.durationHours ?? pkg.duration_hours ?? null;
+  const priceUnit = pkg.priceUnit || pkg.price_unit || "per event";
+  
+  const isPopular = pkg.isPopular ?? pkg.is_popular ?? false;
+  const isPromotional = pkg.isPromotional ?? pkg.is_promotional ?? false;
+  const showOnHomepage = pkg.showOnHomepage ?? pkg.show_on_homepage ?? false;
+  const createdAt = pkg.createdAt || pkg.created_at;
+  
+  const packageImage = pkg.imageUrl || pkg.image_url || null;
+  const defaultImage = `https://eventstancom.vercel.app/images/featured-services/featured-services-1.jpg`;
 
-  // Calculate promotional price
   const getPromotionalPrice = () => {
-    if (!pkg.is_promotional) return null;
-    if (pkg.promotion_discount_type === "PERCENTAGE" && pkg.promotion_discount_value) {
-      return amount - (amount * pkg.promotion_discount_value / 100);
+    if (!isPromotional) return null;
+    
+    if (pkg.promotional_price) return pkg.promotional_price;
+    if (pkg.promotionalPrice) return pkg.promotionalPrice;
+    
+    const discountType = pkg.promotionDiscountType || pkg.promotion_discount_type;
+    const discountValue = pkg.promotionDiscountValue ?? pkg.promotion_discount_value;
+    
+    if (discountType === "PERCENTAGE" && discountValue) {
+      return amount - (amount * discountValue / 100);
     }
-    if (pkg.promotion_discount_type === "FIXED" && pkg.promotion_discount_value) {
-      return amount - pkg.promotion_discount_value;
+    if (discountType === "FLAT" && discountValue) {
+      return amount - discountValue;
     }
     return null;
   };
 
   const promotionalPrice = getPromotionalPrice();
+  const services = pkg.items || [];
+
+  // Show only 4 items initially, then "View More"
+  const displayInclusions = showAllInclusions ? includedItems : includedItems.slice(0, 4);
+  const hasMoreInclusions = includedItems.length > 4;
+
+  // Get service names for display - full names
+  const serviceNames = services.map(item => item.service?.title || item.serviceId).filter(Boolean);
 
   return (
-    <div className="max-w-6xl mx-auto space-y-6 pb-8">
+    <div className="max-w-5xl mx-auto px-4 py-6">
       {/* Alerts */}
       {success && (
-        <div className="flex items-center gap-3 bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-xl text-sm animate-in fade-in slide-in-from-top-2">
-          <div className="w-8 h-8 rounded-full bg-green-100 flex items-center justify-center shrink-0">
-            <CheckCircle2 size={16} className="text-green-600" />
-          </div>
-          <span>{success}</span>
+        <div className="flex items-center gap-2 bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-xl text-sm mb-4">
+          <CheckCircle2 size={15} /> {success}
         </div>
       )}
       {error && (
-        <div className="flex items-center gap-3 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-sm">
-          <div className="w-8 h-8 rounded-full bg-red-100 flex items-center justify-center shrink-0">
-            <AlertTriangle size={16} className="text-red-600" />
-          </div>
-          <span>{error}</span>
+        <div className="flex items-center gap-2 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-sm mb-4">
+          <AlertTriangle size={15} /> {error}
         </div>
       )}
 
-      {/* Header with Breadcrumb */}
-      <div className="flex flex-col gap-4">
-        <div className="flex items-center gap-2 text-sm text-gray-500">
-          <Link href="/vendor/packages" className="hover:text-orange-500 transition-colors">Packages</Link>
-          <span className="text-gray-300">/</span>
-          <span className="text-gray-900 font-medium truncate">{packageName}</span>
-        </div>
-
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div className="flex items-start gap-4">
-            <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-orange-100 to-orange-200 flex items-center justify-center shadow-sm">
-              <PackageIcon size={28} className="text-orange-600" />
-            </div>
-            <div>
-              <h1 className="text-2xl md:text-3xl font-bold text-gray-900 leading-tight">{packageName}</h1>
-              <div className="flex flex-wrap items-center gap-2 mt-1.5">
-                <span className="text-sm text-gray-500 flex items-center gap-1">
-                  <Building2 size={14} className="text-orange-500" /> 
-                  {vendorName}
-                </span>
-              </div>
-            </div>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <Link
-              href={`/vendor/packages/edit/${pkg.id}`}
-              className="flex items-center gap-2 bg-orange-500 hover:bg-orange-600 text-white font-semibold px-4 py-2 rounded-xl text-sm transition-colors shadow-sm"
-            >
-              <Edit3 size={16} /> Edit Package
-            </Link>
-            <button
-              onClick={() => setToggleConfirm(true)}
-              className={`flex items-center gap-2 border px-4 py-2 rounded-xl text-sm font-semibold transition-colors ${
-                pkg.status === "ACTIVE"
-                  ? "border-gray-300 text-gray-700 hover:bg-gray-50"
-                  : "border-green-200 text-green-700 hover:bg-green-50"
-              }`}
-            >
-              {pkg.status === "ACTIVE" ? <ToggleLeft size={16} /> : <ToggleRight size={16} />}
-              {pkg.status === "ACTIVE" ? "Deactivate" : "Activate"}
-            </button>
-            <button
-              onClick={() => setDeleteConfirm(true)}
-              className="flex items-center gap-2 border border-red-200 text-red-600 hover:bg-red-50 font-semibold px-4 py-2 rounded-xl text-sm transition-colors"
-            >
-              <Trash2 size={16} /> Delete
-            </button>
-          </div>
+      {/* Header Actions */}
+      <div className="flex items-center justify-between mb-6">
+        <Link 
+          href="/vendor/packages"
+          className="inline-flex items-center gap-2 text-sm text-gray-500 hover:text-orange-500 transition-colors"
+        >
+          <ArrowLeft size={16} /> Back to Packages
+        </Link>
+        <div className="flex items-center gap-2">
+          <Link
+            href={`/vendor/packages/edit/${pkg.id}`}
+            className="flex items-center gap-2 bg-orange-500 hover:bg-orange-600 text-white font-semibold px-4 py-2 rounded-xl text-sm transition-colors shadow-sm"
+          >
+            <Edit3 size={16} /> Edit
+          </Link>
+          <button
+            onClick={() => setToggleConfirm(true)}
+            className={`flex items-center gap-2 border px-4 py-2 rounded-xl text-sm font-semibold transition-colors ${
+              pkg.status === "ACTIVE"
+                ? "border-gray-300 text-gray-700 hover:bg-gray-50"
+                : "border-green-200 text-green-700 hover:bg-green-50"
+            }`}
+          >
+            {pkg.status === "ACTIVE" ? <ToggleLeft size={16} /> : <ToggleRight size={16} />}
+            {pkg.status === "ACTIVE" ? "Deactivate" : "Activate"}
+          </button>
+          <button
+            onClick={() => setDeleteConfirm(true)}
+            className="flex items-center gap-2 border border-red-200 text-red-600 hover:bg-red-50 font-semibold px-4 py-2 rounded-xl text-sm transition-colors"
+          >
+            <Trash2 size={16} />
+          </button>
         </div>
       </div>
 
-      {/* Status & Badges Bar */}
-      <div className="flex flex-wrap items-center gap-3 bg-white rounded-2xl border border-gray-100 p-4 shadow-sm">
-        <div className="flex items-center gap-3 flex-wrap">
-          <span className={`inline-flex items-center gap-1.5 text-sm font-semibold px-3 py-1.5 rounded-full ${
-            pkg.status === "ACTIVE" ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-500"
-          }`}>
-            {pkg.status === "ACTIVE" ? <ToggleRight size={14} className="text-green-500" /> : <ToggleLeft size={14} />}
-            {pkg.status === "ACTIVE" ? "Active" : "Inactive"}
-          </span>
-          {pkg.is_popular && (
-            <span className="inline-flex items-center gap-1 text-sm font-semibold px-3 py-1.5 rounded-full bg-yellow-100 text-yellow-700">
-              <Star size={14} className="fill-yellow-500" /> Popular
+      {/* ✅ SINGLE CARD */}
+      <div className="bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden">
+        
+        {/* 1. Package Image */}
+        <div className="relative w-full h-56 md:h-72 bg-gradient-to-r from-orange-100 to-orange-200 overflow-hidden">
+          <img
+            src={packageImage || defaultImage}
+            alt={packageName}
+            className="w-full h-full object-cover"
+            onError={(e) => {
+              (e.target as HTMLImageElement).src = defaultImage;
+            }}
+          />
+          <div className="absolute top-4 left-4 flex items-center gap-2 flex-wrap">
+            <span className={`text-xs font-semibold px-3 py-1 rounded-full ${
+              pkg.status === "ACTIVE" 
+                ? "bg-green-100 text-green-700" 
+                : "bg-gray-100 text-gray-500"
+            }`}>
+              {pkg.status === "ACTIVE" ? "● Active" : "● Inactive"}
             </span>
-          )}
-          {pkg.is_promotional && (
-            <span className="inline-flex items-center gap-1 text-sm font-semibold px-3 py-1.5 rounded-full bg-red-100 text-red-700">
-              <Tag size={14} /> Promotional
-            </span>
-          )}
-          {pkg.showOnHomepage && (
-            <span className="inline-flex items-center gap-1 text-sm font-semibold px-3 py-1.5 rounded-full bg-purple-100 text-purple-700">
-              <Eye size={14} /> Show on Homepage
-            </span>
-          )}
+            {isPopular && (
+              <span className="text-xs font-semibold px-3 py-1 rounded-full bg-yellow-100 text-yellow-700">
+                ★ Popular
+              </span>
+            )}
+            {isPromotional && (
+              <span className="text-xs font-semibold px-3 py-1 rounded-full bg-red-100 text-red-700">
+                🔥 Promotional
+              </span>
+            )}
+          </div>
         </div>
-        <div className="ml-auto flex items-center gap-2 text-sm text-gray-400">
-          <span>Updated: {pkg.updatedAt ? new Date(pkg.updatedAt).toLocaleDateString() : "—"}</span>
-        </div>
-      </div>
 
-      {/* Stats Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <div className="bg-white rounded-2xl border border-gray-100 p-5 shadow-sm hover:shadow-md transition-shadow">
+        {/* 2. Quick Stats - Top par icons ke saath */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 p-4 md:p-5 bg-orange-50/50 border-b border-gray-100">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-orange-50 flex items-center justify-center">
-              <PackageIcon size={20} className="text-orange-500" />
+            <div className="w-9 h-9 rounded-lg bg-orange-100 flex items-center justify-center shrink-0">
+              <PackageIcon size={16} className="text-orange-600" />
             </div>
             <div>
-              <p className="text-xs text-gray-400 font-medium uppercase">Price</p>
-              {promotionalPrice ? (
-                <div>
-                  <p className="text-xl font-bold text-green-600">
-                    {promotionalPrice.toLocaleString()} {currency}
-                  </p>
-                  <p className="text-xs text-gray-400 line-through">
-                    {amount.toLocaleString()} {currency}
-                  </p>
-                </div>
-              ) : (
-                <p className="text-xl font-bold text-gray-900">
-                  {amount.toLocaleString()} {currency}
+              <p className="text-[10px] text-gray-400 uppercase tracking-wider">Price</p>
+              <p className="text-sm font-bold text-gray-900">
+                {promotionalPrice ? (
+                  <>
+                    <span className="text-green-600">{promotionalPrice.toLocaleString()} {currency}</span>
+                    <span className="text-xs text-gray-400 line-through ml-1">{amount.toLocaleString()} {currency}</span>
+                  </>
+                ) : (
+                  <>{amount.toLocaleString()} {currency}</>
+                )}
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-lg bg-blue-100 flex items-center justify-center shrink-0">
+              <Users size={16} className="text-blue-600" />
+            </div>
+            <div>
+              <p className="text-[10px] text-gray-400 uppercase tracking-wider">Capacity</p>
+              <p className="text-sm font-bold text-gray-900">{maxGuests || "—"}</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-lg bg-purple-100 flex items-center justify-center shrink-0">
+              <Clock size={16} className="text-purple-600" />
+            </div>
+            <div>
+              <p className="text-[10px] text-gray-400 uppercase tracking-wider">Duration</p>
+              <p className="text-sm font-bold text-gray-900">{duration || "—"}h</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-3 col-span-2 md:col-span-1">
+            <div className="w-9 h-9 rounded-lg bg-green-100 flex items-center justify-center shrink-0">
+              <PackageIcon size={16} className="text-green-600" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-[10px] text-gray-400 uppercase tracking-wider">Services</p>
+              <p className="text-sm font-medium text-gray-900 break-words">
+                {serviceNames.length > 0 ? serviceNames.join(", ") : "—"}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* 3. Header Section - Package title ke saath */}
+        <div className="p-5 md:p-6 border-b border-gray-100">
+          <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3">
+            <div className="flex-1">
+              <div className="flex items-center gap-3 flex-wrap">
+                <h1 className="text-xl md:text-2xl font-bold text-gray-900">
+                  {packageName}
+                </h1>
+              </div>
+              {services.length > 0 && services[0]?.service?.category?.name && (
+                <p className="text-sm text-gray-500 mt-1 flex items-center gap-2">
+                  <span className="bg-gray-100 text-gray-600 px-2 py-0.5 rounded text-xs font-medium">
+                    {services[0].service.category.name}
+                  </span>
                 </p>
               )}
-              <p className="text-xs text-gray-400 mt-0.5">per {pkg.price_unit || pkg.priceUnit || "package"}</p>
+            </div>
+            <div className="text-right shrink-0">
+              <div className="flex items-center gap-2 justify-end">
+                {promotionalPrice ? (
+                  <>
+                    <span className="text-xl font-bold text-green-600">
+                      {promotionalPrice.toLocaleString()} {currency}
+                    </span>
+                    <span className="text-sm text-gray-400 line-through">
+                      {amount.toLocaleString()} {currency}
+                    </span>
+                  </>
+                ) : (
+                  <span className="text-xl font-bold text-gray-900">
+                    {amount.toLocaleString()} {currency}
+                  </span>
+                )}
+              </div>
+              <p className="text-xs text-gray-400 capitalize">{priceUnit}</p>
+              {maxGuests && (
+                <p className="text-xs text-gray-400 mt-0.5">
+                  min 1 – max {maxGuests} guests
+                </p>
+              )}
             </div>
           </div>
         </div>
-        <div className="bg-white rounded-2xl border border-gray-100 p-5 shadow-sm hover:shadow-md transition-shadow">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center">
-              <Users size={20} className="text-blue-500" />
-            </div>
-            <div>
-              <p className="text-xs text-gray-400 font-medium uppercase">Capacity</p>
-              <p className="text-xl font-bold text-gray-900">{pkg.max_guests || "—"}</p>
-              <p className="text-xs text-gray-400 mt-0.5">max guests</p>
-            </div>
-          </div>
-        </div>
-        <div className="bg-white rounded-2xl border border-gray-100 p-5 shadow-sm hover:shadow-md transition-shadow">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-purple-50 flex items-center justify-center">
-              <Clock size={20} className="text-purple-500" />
-            </div>
-            <div>
-              <p className="text-xs text-gray-400 font-medium uppercase">Duration</p>
-              <p className="text-xl font-bold text-gray-900">{pkg.duration_hours || "—"}</p>
-              <p className="text-xs text-gray-400 mt-0.5">hours</p>
-            </div>
-          </div>
-        </div>
-        <div className="bg-white rounded-2xl border border-gray-100 p-5 shadow-sm hover:shadow-md transition-shadow">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-green-50 flex items-center justify-center">
-              <Layers size={20} className="text-green-500" />
-            </div>
-            <div>
-              <p className="text-xs text-gray-400 font-medium uppercase">Services</p>
-              <p className="text-xl font-bold text-gray-900">{services.length}</p>
-              <p className="text-xs text-gray-400 mt-0.5">included</p>
-            </div>
-          </div>
-        </div>
-      </div>
 
-      {/* Tabs */}
-      <div className="flex items-center gap-1 bg-white rounded-2xl border border-gray-100 p-1 shadow-sm">
-        <button
-          onClick={() => setActiveTab("overview")}
-          className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition-all ${
-            activeTab === "overview"
-              ? "bg-orange-500 text-white shadow-sm"
-              : "text-gray-500 hover:text-gray-700 hover:bg-gray-50"
-          }`}
-        >
-          <Info size={16} /> Overview
-        </button>
-        <button
-          onClick={() => setActiveTab("services")}
-          className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition-all ${
-            activeTab === "services"
-              ? "bg-orange-500 text-white shadow-sm"
-              : "text-gray-500 hover:text-gray-700 hover:bg-gray-50"
-          }`}
-        >
-          <Layers size={16} /> Services ({services.length})
-        </button>
-        <button
-          onClick={() => setActiveTab("details")}
-          className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition-all ${
-            activeTab === "details"
-              ? "bg-orange-500 text-white shadow-sm"
-              : "text-gray-500 hover:text-gray-700 hover:bg-gray-50"
-          }`}
-        >
-          <Gift size={16} /> Inclusions & Features
-        </button>
-      </div>
-
-      {/* Tab Content */}
-      <div className="bg-white rounded-2xl border border-gray-100 p-6 shadow-sm">
-        {/* Overview Tab */}
-        {activeTab === "overview" && (
-          <div className="space-y-6">
-            {pkg.description && (
+        {/* 4. Description */}
+        {pkg.description && (
+          <div className="p-5 md:p-6 border-b border-gray-100">
+            <div className="flex items-start gap-3">
+              <div className="w-6 h-6 rounded-full bg-blue-50 flex items-center justify-center shrink-0 mt-0.5">
+                <Info size={14} className="text-blue-500" />
+              </div>
               <div>
-                <h3 className="text-sm font-semibold text-gray-400 uppercase mb-3 flex items-center gap-2">
-                  <span className="w-1 h-5 bg-orange-500 rounded-full"></span>
-                  Description
-                </h3>
-                <div className="bg-orange-50/50 rounded-xl p-5 border border-orange-100">
-                  <p className="text-gray-700 leading-relaxed whitespace-pre-wrap">{pkg.description}</p>
-                </div>
-              </div>
-            )}
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {pkg.inclusions && pkg.inclusions.length > 0 && (
-                <div>
-                  <h3 className="text-sm font-semibold text-gray-400 uppercase mb-3 flex items-center gap-2">
-                    <span className="w-1 h-5 bg-green-500 rounded-full"></span>
-                    Inclusions
-                    <span className="ml-auto text-xs bg-green-50 text-green-600 px-2 py-0.5 rounded-full">
-                      {pkg.inclusions.length} items
-                    </span>
-                  </h3>
-                  <ul className="space-y-2 bg-gray-50 rounded-xl p-4">
-                    {pkg.inclusions.map((item, idx) => (
-                      <li key={idx} className="flex items-start gap-3 text-sm text-gray-700">
-                        <CheckCircle2 size={16} className="text-green-500 mt-0.5 shrink-0" />
-                        {item}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-              {pkg.features && pkg.features.length > 0 && (
-                <div>
-                  <h3 className="text-sm font-semibold text-gray-400 uppercase mb-3 flex items-center gap-2">
-                    <span className="w-1 h-5 bg-blue-500 rounded-full"></span>
-                    Features
-                    <span className="ml-auto text-xs bg-blue-50 text-blue-600 px-2 py-0.5 rounded-full">
-                      {pkg.features.length} items
-                    </span>
-                  </h3>
-                  <ul className="space-y-2 bg-gray-50 rounded-xl p-4">
-                    {pkg.features.map((item, idx) => (
-                      <li key={idx} className="flex items-start gap-3 text-sm text-gray-700">
-                        <Sparkles size={16} className="text-blue-500 mt-0.5 shrink-0" />
-                        {item}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-            </div>
-
-            {/* Quick Stats */}
-            <div className="border-t border-gray-100 pt-6">
-              <h3 className="text-sm font-semibold text-gray-400 uppercase mb-4">Quick Details</h3>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <div className="bg-gray-50 rounded-xl p-3">
-                  <p className="text-xs text-gray-400">Vendor</p>
-                  <p className="text-sm font-semibold text-gray-700 mt-0.5">{vendorName}</p>
-                </div>
-                <div className="bg-gray-50 rounded-xl p-3">
-                  <p className="text-xs text-gray-400">Price Unit</p>
-                  <p className="text-sm font-semibold text-gray-700 mt-0.5 capitalize">{pkg.price_unit || pkg.priceUnit || "Standard"}</p>
-                </div>
-                <div className="bg-gray-50 rounded-xl p-3">
-                  <p className="text-xs text-gray-400">Promotional</p>
-                  <p className="text-sm font-semibold text-gray-700 mt-0.5">{pkg.is_promotional ? "Yes" : "No"}</p>
-                </div>
-                <div className="bg-gray-50 rounded-xl p-3">
-                  <p className="text-xs text-gray-400">Created</p>
-                  <p className="text-sm font-semibold text-gray-700 mt-0.5">
-                    {pkg.createdAt || pkg.created_at 
-                      ? new Date(pkg.createdAt || pkg.created_at || "").toLocaleDateString() 
-                      : "—"}
-                  </p>
-                </div>
+                <h2 className="text-sm font-semibold text-gray-700 mb-1.5">Description</h2>
+                <p className="text-gray-600 text-sm leading-relaxed whitespace-pre-line">{pkg.description}</p>
               </div>
             </div>
           </div>
         )}
 
-        {/* Services Tab */}
-        {activeTab === "services" && (
-          <div>
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-sm font-semibold text-gray-400 uppercase flex items-center gap-2">
-                <span className="w-1 h-5 bg-orange-500 rounded-full"></span>
-                Included Services
-              </h3>
-              <span className="text-sm bg-orange-50 text-orange-600 px-3 py-1 rounded-full font-medium">
-                {services.length} services
-              </span>
-            </div>
-            {services.length > 0 ? (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {services.map((item) => (
-                  <div 
-                    key={item.serviceId} 
-                    className="flex items-start gap-4 p-4 bg-gradient-to-br from-orange-50/50 to-white border border-orange-100 rounded-xl hover:border-orange-300 hover:shadow-md transition-all group"
-                  >
-                    <div className="w-14 h-14 rounded-xl bg-white overflow-hidden shrink-0 flex items-center justify-center border border-orange-100 group-hover:border-orange-300 transition-colors shadow-sm">
-                      {item.service?.imageUrl ? (
-                        <img 
-                          src={item.service.imageUrl} 
-                          alt={item.service.title} 
-                          className="w-full h-full object-cover" 
-                        />
+        {/* 5. What's Included + Features - Same row mein */}
+        <div className="p-5 md:p-6">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* What's Included */}
+            <div>
+              <h2 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
+                <CheckCircle2 size={16} className="text-green-500" />
+                What's Included {includedItems.length > 0 && `(${includedItems.length})`}
+              </h2>
+              {includedItems.length > 0 ? (
+                <div className="space-y-1.5">
+                  {displayInclusions.map((item, idx) => (
+                    <div 
+                      key={idx}
+                      className="flex items-start gap-2.5 p-2 bg-gray-50 rounded-lg hover:bg-orange-50 transition-colors"
+                    >
+                      <CheckCircle2 size={14} className="text-green-500 mt-0.5 shrink-0" />
+                      <span className="text-gray-700 text-sm">{item}</span>
+                    </div>
+                  ))}
+                  {hasMoreInclusions && (
+                    <button
+                      onClick={() => setShowAllInclusions(!showAllInclusions)}
+                      className="flex items-center gap-1.5 text-xs font-medium text-orange-500 hover:text-orange-600 mt-2 transition-colors"
+                    >
+                      {showAllInclusions ? (
+                        <>Show Less <ChevronUp size={14} /></>
                       ) : (
-                        <PackageIcon size={20} className="text-orange-300" />
+                        <>View More ({includedItems.length - 3} more) <ChevronDown size={14} /></>
                       )}
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <p className="text-sm font-semibold text-gray-900 truncate">
-                        {item.service?.title || "Service"}
-                      </p>
-                      <p className="text-xs text-gray-400 mt-0.5">
-                        {item.service?.category?.name || "Service"}
-                      </p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="text-center py-12">
-                <div className="w-16 h-16 rounded-full bg-gray-100 flex items-center justify-center mx-auto mb-3">
-                  <PackageIcon size={24} className="text-gray-300" />
+                    </button>
+                  )}
                 </div>
-                <p className="text-gray-400 font-medium">No services linked</p>
-                <p className="text-sm text-gray-400 mt-1">This package doesn't have any services yet.</p>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Details Tab */}
-        {activeTab === "details" && (
-          <div className="space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {pkg.inclusions && pkg.inclusions.length > 0 && (
-                <div>
-                  <h3 className="text-sm font-semibold text-gray-400 uppercase mb-3 flex items-center gap-2">
-                    <span className="w-1 h-5 bg-green-500 rounded-full"></span>
-                    Inclusions
-                    <span className="ml-auto text-xs bg-green-50 text-green-600 px-2 py-0.5 rounded-full">
-                      {pkg.inclusions.length} items
-                    </span>
-                  </h3>
-                  <ul className="space-y-2 bg-green-50/30 rounded-xl p-4 border border-green-100">
-                    {pkg.inclusions.map((item, idx) => (
-                      <li key={idx} className="flex items-start gap-3 text-sm text-gray-700">
-                        <CheckCircle2 size={16} className="text-green-500 mt-0.5 shrink-0" />
-                        {item}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-              {pkg.features && pkg.features.length > 0 && (
-                <div>
-                  <h3 className="text-sm font-semibold text-gray-400 uppercase mb-3 flex items-center gap-2">
-                    <span className="w-1 h-5 bg-blue-500 rounded-full"></span>
-                    Features
-                    <span className="ml-auto text-xs bg-blue-50 text-blue-600 px-2 py-0.5 rounded-full">
-                      {pkg.features.length} items
-                    </span>
-                  </h3>
-                  <ul className="space-y-2 bg-blue-50/30 rounded-xl p-4 border border-blue-100">
-                    {pkg.features.map((item, idx) => (
-                      <li key={idx} className="flex items-start gap-3 text-sm text-gray-700">
-                        <Sparkles size={16} className="text-blue-500 mt-0.5 shrink-0" />
-                        {item}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
+              ) : (
+                <p className="text-sm text-gray-400">No items listed</p>
               )}
             </div>
 
-            {/* Vendor Information */}
-            <div className="bg-orange-50/30 rounded-xl p-5 border border-orange-100">
-              <h3 className="text-sm font-semibold text-orange-700 uppercase mb-3 flex items-center gap-2">
-                <Building2 size={16} /> Vendor Information
-              </h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <p className="text-xs text-orange-600/70">Vendor Name</p>
-                  <p className="text-sm font-semibold text-gray-800 mt-0.5">{vendorName}</p>
+            {/* Features */}
+            <div>
+              <h2 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
+                <Sparkles size={16} className="text-purple-500" />
+                Features {features.length > 0 && `(${features.length})`}
+              </h2>
+              {features.length > 0 ? (
+                <div className="flex flex-wrap gap-2">
+                  {features.map((feature, idx) => (
+                    <span 
+                      key={idx}
+                      className="px-3 py-1.5 bg-purple-50 text-purple-700 rounded-full text-xs font-medium border border-purple-100"
+                    >
+                      {feature}
+                    </span>
+                  ))}
                 </div>
-                <div>
-                  <p className="text-xs text-orange-600/70">Package Name</p>
-                  <p className="text-sm font-semibold text-gray-800 mt-0.5">{packageName}</p>
-                </div>
-              </div>
-            </div>
-
-            {/* Promotional Details */}
-            {pkg.is_promotional && (
-              <div className="bg-red-50/50 rounded-xl p-5 border border-red-200">
-                <h3 className="text-sm font-semibold text-red-700 uppercase mb-3 flex items-center gap-2">
-                  <Tag size={16} /> Promotional Details
-                </h3>
-                <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                  <div>
-                    <p className="text-xs text-red-600/70">Discount Type</p>
-                    <p className="text-sm font-semibold text-red-700 capitalize">{pkg.promotion_discount_type || "N/A"}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-red-600/70">Discount Value</p>
-                    <p className="text-sm font-semibold text-red-700">
-                      {pkg.promotion_discount_type === "PERCENTAGE" 
-                        ? `${pkg.promotion_discount_value}%` 
-                        : pkg.promotion_discount_value 
-                          ? `${pkg.promotion_discount_value} ${currency}` 
-                          : "N/A"}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-red-600/70">Promotional Price</p>
-                    <p className="text-sm font-semibold text-red-700">
-                      {promotionalPrice 
-                        ? `${promotionalPrice.toLocaleString()} ${currency}` 
-                        : "N/A"}
-                    </p>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Metadata */}
-            <div className="border-t border-gray-100 pt-6">
-              <h3 className="text-sm font-semibold text-gray-400 uppercase mb-4">Additional Information</h3>
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                <div className="bg-gray-50 rounded-xl p-3">
-                  <p className="text-xs text-gray-400">Show on Homepage</p>
-                  <p className="text-sm font-semibold text-gray-700 mt-0.5">{pkg.showOnHomepage ? "Yes" : "No"}</p>
-                </div>
-                <div className="bg-gray-50 rounded-xl p-3">
-                  <p className="text-xs text-gray-400">Created At</p>
-                  <p className="text-sm font-semibold text-gray-700 mt-0.5">
-                    {pkg.createdAt || pkg.created_at 
-                      ? new Date(pkg.createdAt || pkg.created_at || "").toLocaleString() 
-                      : "—"}
-                  </p>
-                </div>
-                <div className="bg-gray-50 rounded-xl p-3">
-                  <p className="text-xs text-gray-400">Last Updated</p>
-                  <p className="text-sm font-semibold text-gray-700 mt-0.5">
-                    {pkg.updatedAt ? new Date(pkg.updatedAt).toLocaleString() : "—"}
-                  </p>
-                </div>
-              </div>
+              ) : (
+                <p className="text-sm text-gray-400">No features listed</p>
+              )}
             </div>
           </div>
-        )}
+        </div>
       </div>
 
       {/* Delete Confirmation Modal */}

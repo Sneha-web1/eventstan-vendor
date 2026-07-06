@@ -30,6 +30,21 @@ interface SupportTicket {
   messages: SupportMessage[];
 }
 
+// `vendorApi` does not (yet) declare a `support` namespace in its type definition.
+// This local type lets us call it here without editing vendorApi.ts. We guard every
+// call at runtime with a typeof check so this page fails clearly (instead of a raw
+// "undefined is not a function" crash) if the backend/client method isn't wired up.
+interface VendorSupportApi {
+  get: <T = unknown>(ticketId: string) => Promise<T>;
+  reply: <T = unknown>(
+    ticketId: string,
+    payload: { message: string; attachments: string[] },
+  ) => Promise<T>;
+}
+type VendorApiWithSupport = typeof vendorApi & {
+  support?: Partial<VendorSupportApi>;
+};
+
 const statusClass: Record<SupportStatus, string> = {
   OPEN: "bg-blue-50 text-blue-700",
   IN_PROGRESS: "bg-orange-50 text-orange-700",
@@ -45,6 +60,8 @@ export default function VendorSupportDetailPage() {
   const user = getUser();
   const ticketId = params.id;
 
+  const supportApi = (vendorApi as VendorApiWithSupport).support;
+
   const [ticket, setTicket] = useState<SupportTicket | null>(null);
   const [loading, setLoading] = useState(true);
   const [reply, setReply] = useState("");
@@ -55,10 +72,18 @@ export default function VendorSupportDetailPage() {
   const isMine = useMemo(() => user?.role === "VENDOR", [user]);
 
   const fetchTicket = async () => {
+    if (typeof supportApi?.get !== "function") {
+      setLoading(false);
+      setError(
+        "Support ticket lookup isn't available yet. Add a `support.get` method to vendorApi.",
+      );
+      return;
+    }
+
     try {
       setLoading(true);
       setError("");
-      const data = await vendorApi.support.get<SupportTicket>(ticketId);
+      const data = await supportApi.get<SupportTicket>(ticketId);
       setTicket(data);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Unable to load ticket");
@@ -84,11 +109,18 @@ export default function VendorSupportDetailPage() {
       return;
     }
 
+    if (typeof supportApi?.reply !== "function") {
+      setError(
+        "Sending replies isn't available yet. Add a `support.reply` method to vendorApi.",
+      );
+      return;
+    }
+
     setSaving(true);
     setError("");
     try {
       const attachments = await uploadAttachments();
-      const updated = await vendorApi.support.reply<SupportTicket>(ticketId, {
+      const updated = await supportApi.reply<SupportTicket>(ticketId, {
         message: reply.trim(),
         attachments,
       });
