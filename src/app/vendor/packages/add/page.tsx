@@ -99,14 +99,13 @@ export default function AddPackagePage() {
     includedItems: [] as string[],
     features: [] as string[],
     vendorPhone: "",
-    showOnHomepage: false,
     isPromotional: false,
     promotionDiscountType: "PERCENTAGE",
     promotionDiscountValue: "",
     promotionStartDate: "",
     promotionEndDate: "",
     isRental: false,
-    deliveryFeeType: "fixed",
+    deliveryFeeType: "base",
     deliveryFixedFee: "",
     pickupAvailable: true,
     deliveryAvailable: true,
@@ -382,7 +381,7 @@ export default function AddPackagePage() {
         return;
       }
 
-      if (form.deliveryFeeType === "fixed" && !form.deliveryFixedFee) {
+      if (form.deliveryFeeType === "base" && !form.deliveryFixedFee) {
         setFormError("Please enter a fixed delivery fee.");
         return;
       }
@@ -512,7 +511,7 @@ export default function AddPackagePage() {
         features: form.features,
         vendorPhone: form.vendorPhone || undefined,
         imageUrl: uploadedImageUrl || undefined,
-        showOnHomepage: form.showOnHomepage,
+        showOnPromotionalPage: form.isPromotional,
         isPromotional: form.isPromotional,
         promotionDiscountType: form.isPromotional
           ? form.promotionDiscountType
@@ -546,8 +545,8 @@ export default function AddPackagePage() {
         if (form.deliveryFeeType === "free") {
           packageData.deliveryFeeType = "free";
           packageData.deliveryFee = 0;
-        } else if (form.deliveryFeeType === "fixed") {
-          packageData.deliveryFeeType = "fixed";
+        } else if (form.deliveryFeeType === "base") {
+          packageData.deliveryFeeType = "base";
           packageData.deliveryFee = Number(form.deliveryFixedFee);
         }
       }
@@ -990,7 +989,7 @@ export default function AddPackagePage() {
                   </div>
                   </div>
 
-                  {form.deliveryFeeType === "fixed" && (
+                  {form.deliveryFeeType === "base" && (
                     <div>
                       <label className="mb-1.5 block text-xs font-semibold tracking-wide text-gray-600">
                         Fixed Delivery Fee{" "}
@@ -1109,28 +1108,6 @@ export default function AddPackagePage() {
               </p>
             </div>
 
-            <div className="flex items-center justify-between gap-3 rounded-2xl border border-gray-200 bg-gray-50 p-4">
-              <div>
-                <p className="text-sm font-semibold text-gray-900">
-                  Show on Homepage
-                </p>
-                <p className="text-xs text-gray-500">
-                  Feature this package on the homepage.
-                </p>
-              </div>
-              <label className="inline-flex cursor-pointer items-center gap-2 text-sm font-medium text-gray-700">
-                <input
-                  type="checkbox"
-                  checked={form.showOnHomepage}
-                  onChange={(e) =>
-                    setField("showOnHomepage", e.target.checked)
-                  }
-                  className="h-4 w-4 rounded border-gray-300 text-orange-500 focus:ring-orange-400"
-                />
-                Enabled
-              </label>
-            </div>
-
             <div>
               <label className="mb-1.5 block text-xs font-semibold tracking-wide text-gray-600">
                 Vendor Phone
@@ -1230,10 +1207,7 @@ export default function AddPackagePage() {
                     type="checkbox"
                     checked={form.isPromotional}
                     onChange={(e) =>
-                      setForm((current) => ({
-                        ...current,
-                        isPromotional: e.target.checked,
-                      }))
+                      setField("isPromotional", e.target.checked)
                     }
                     className="h-4 w-4 rounded border-gray-300 text-orange-500 focus:ring-orange-400"
                   />

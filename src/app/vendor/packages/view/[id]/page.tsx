@@ -100,6 +100,8 @@ interface ApiPackage {
   created_at?: string;
   showOnHomepage?: boolean;
   show_on_homepage?: boolean;
+  showOnPromotionalPage?: boolean;
+  show_on_promotional_page?: boolean;
   exactPrice?: number;
   exact_price?: number;
   vendorPhone?: string;
@@ -283,7 +285,12 @@ export default function PackageViewPage() {
   
   const isPopular = pkg.isPopular ?? pkg.is_popular ?? false;
   const isPromotional = pkg.isPromotional ?? pkg.is_promotional ?? false;
-  const showOnHomepage = pkg.showOnHomepage ?? pkg.show_on_homepage ?? false;
+  const showOnHomepage =
+    pkg.showOnPromotionalPage ??
+    pkg.show_on_promotional_page ??
+    pkg.showOnHomepage ??
+    pkg.show_on_homepage ??
+    false;
   const createdAt = pkg.createdAt || pkg.created_at;
   
   const packageImage = pkg.imageUrl || pkg.image_url || null;
@@ -507,7 +514,7 @@ export default function PackageViewPage() {
                   </span>
                   {showOnHomepage && (
                     <span className="bg-blue-50 text-blue-600 px-2 py-0.5 rounded text-xs font-medium">
-                      Shown on Homepage
+                      Shown on Promotional Page
                     </span>
                   )}
                 </p>
@@ -515,7 +522,7 @@ export default function PackageViewPage() {
               {!resolvedCategoryName && showOnHomepage && (
                 <p className="text-sm text-gray-500 mt-1 flex items-center gap-2">
                   <span className="bg-blue-50 text-blue-600 px-2 py-0.5 rounded text-xs font-medium">
-                    Shown on Homepage
+                    Shown on Promotional Page
                   </span>
                 </p>
               )}

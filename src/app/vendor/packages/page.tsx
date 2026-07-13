@@ -30,7 +30,7 @@ const ITEMS_PER_PAGE = 10;
 interface PackageService {
   id: string;
   title: string;
-  category?: { name: string };
+  category?: { id?: string; name: string };
   imageUrl?: string | null;
 }
 
@@ -120,6 +120,17 @@ interface ApiPackage {
   min_pieces?: number;
   maxPieces?: number;
   max_pieces?: number;
+  category?: { id?: string; name?: string; slug?: string } | null;
+  category_name?: string;
+  category_slug?: string;
+  originalPrice?: number;
+  original_price?: number;
+  promotionalPrice?: number;
+  promotional_price?: number;
+  showOnPromotionalPage?: boolean;
+  show_on_promotional_page?: boolean;
+  updatedAt?: string;
+  updated_at?: string;
 }
 
 function packageAmount(pkg: ApiPackage) {
@@ -128,6 +139,22 @@ function packageAmount(pkg: ApiPackage) {
 
 function packageCurrency(pkg: ApiPackage) {
   return pkg.money?.currency ?? pkg.currency ?? "AED";
+}
+
+function packageOriginalPrice(pkg: ApiPackage) {
+  return pkg.originalPrice ?? pkg.original_price ?? pkg.exactPrice ?? pkg.exact_price;
+}
+
+function packageCategoryName(pkg: ApiPackage) {
+  return pkg.category?.name ?? pkg.category_name ?? "";
+}
+
+function packageCategoryId(pkg: ApiPackage) {
+  return pkg.category?.id ?? pkg.categoryId ?? pkg.category_id ?? "";
+}
+
+function packageIsPromotional(pkg: ApiPackage) {
+  return pkg.isPromotional ?? pkg.is_promotional ?? false;
 }
 
 function packageServices(pkg: ApiPackage): ApiPackageItem[] {
@@ -251,8 +278,15 @@ function PackageDetailModal({
               <p className="text-xs font-semibold text-gray-400 uppercase mb-1">
                 Price
               </p>
-              <p className="text-xl font-bold text-gray-900">
+              <p className="text-xl font-bold text-gray-900 flex items-center gap-2">
                 {packageAmount(pkg).toLocaleString()} {packageCurrency(pkg)}
+                {packageIsPromotional(pkg) &&
+                  packageOriginalPrice(pkg) != null &&
+                  packageOriginalPrice(pkg) !== packageAmount(pkg) && (
+                    <span className="text-sm font-medium text-gray-400 line-through">
+                      {packageOriginalPrice(pkg)!.toLocaleString()}
+                    </span>
+                  )}
               </p>
               <p className="text-xs text-gray-400">
                 {pkg.price_unit || pkg.priceUnit || "package"}
@@ -344,32 +378,54 @@ export default function PackagesPage() {
   // Filter states
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
   const [serviceFilter, setServiceFilter] = useState<string>("all");
+  const [allCategories, setAllCategories] = useState<
+    Array<{ id: string; name: string }>
+  >([]);
 
-  // Extract unique categories from packages
+  // All categories (not just ones already used by a package), for the filter dropdown.
+  // Filtering by id (not name) avoids mismatches between master-data category
+  // names and the category names embedded in services/packages.
   const categories = useMemo(() => {
-    const cats = new Set<string>();
+    if (allCategories.length) {
+      const seen = new Map<string, string>();
+      allCategories.forEach((c) => seen.set(c.id, c.name));
+      return Array.from(seen.entries())
+        .map(([id, name]) => ({ id, name }))
+        .sort((a, b) => a.name.localeCompare(b.name));
+    }
+    // Fallback: derive from packages if master data hasn't loaded yet
+    const cats = new Map<string, string>();
     packages.forEach(pkg => {
       const services = packageServices(pkg);
       services.forEach(item => {
-        if (item.service?.category?.name) {
-          cats.add(item.service.category.name);
-        }
+        const id = item.service?.category?.id;
+        const name = item.service?.category?.name;
+        if (id && name) cats.set(id, name);
       });
+      const pkgCatId = packageCategoryId(pkg);
+      const pkgCatName = packageCategoryName(pkg);
+      if (pkgCatId && pkgCatName) cats.set(pkgCatId, pkgCatName);
     });
-    return Array.from(cats).sort();
-  }, [packages]);
+    return Array.from(cats.entries())
+      .map(([id, name]) => ({ id, name }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [packages, allCategories]);
 
   // Extract unique services based on selected category
   const services = useMemo(() => {
     const svcs = new Set<string>();
     packages.forEach(pkg => {
       const pkgServices = packageServices(pkg);
+      const pkgCatId = packageCategoryId(pkg);
       pkgServices.forEach(item => {
         // If category filter is selected, only show services from that category
-        if (categoryFilter === "all" || item.service?.category?.name === categoryFilter) {
-          if (item.service?.title) {
-            svcs.add(item.service.title);
-          }
+        const itemCatId = item.service?.category?.id;
+        const matchesCategory =
+          categoryFilter === "all" ||
+          itemCatId === categoryFilter ||
+          pkgCatId === categoryFilter;
+        if (matchesCategory && item.service?.title) {
+          svcs.add(item.service.title);
         }
       });
     });
@@ -393,8 +449,20 @@ export default function PackagesPage() {
     }
   };
 
+  const fetchCategories = async () => {
+    try {
+      const rows = await vendorApi.masterData.categories<
+        Array<{ id: string; name: string }>
+      >();
+      setAllCategories(rows);
+    } catch (err) {
+      console.error("Failed to load categories:", err);
+    }
+  };
+
   useEffect(() => {
     void fetchPackages();
+    void fetchCategories();
   }, []);
 
   // Reset to page 1 when filters or sort changes
@@ -417,9 +485,10 @@ export default function PackagesPage() {
         
         // Filter by category
         if (categoryFilter !== "all") {
-          const hasCategory = pkgServices.some(
-            item => item.service?.category?.name === categoryFilter
-          );
+          const hasCategory =
+            pkgServices.some(
+              item => item.service?.category?.id === categoryFilter
+            ) || packageCategoryId(pkg) === categoryFilter;
           if (!hasCategory) return false;
         }
         
@@ -509,7 +578,7 @@ export default function PackagesPage() {
       features: pkg.features || [],
       vendorPhone: pkg.vendorPhone || pkg.vendor_phone || undefined,
       imageUrl: pkg.imageUrl || pkg.image_url || undefined,
-      showOnHomepage: pkg.showOnHomepage ?? pkg.show_on_homepage ?? false,
+      showOnPromotionalPage: pkg.showOnPromotionalPage ?? pkg.show_on_promotional_page ?? false,
       isPromotional: pkg.isPromotional ?? pkg.is_promotional ?? false,
       promotionDiscountType: pkg.promotionDiscountType || pkg.promotion_discount_type || undefined,
       promotionDiscountValue: pkg.promotionDiscountValue ?? pkg.promotion_discount_value ?? undefined,
@@ -639,8 +708,8 @@ export default function PackagesPage() {
           >
             <option value="all">All Categories</option>
             {categories.map((cat) => (
-              <option key={cat} value={cat}>
-                {cat}
+              <option key={cat.id} value={cat.id}>
+                {cat.name}
               </option>
             ))}
           </select>
@@ -762,9 +831,16 @@ export default function PackagesPage() {
                           </div>
                         </td>
                         <td className="px-4 py-3">
-                          <div className="text-sm font-semibold text-gray-800 whitespace-nowrap">
+                          <div className="text-sm font-semibold text-gray-800 whitespace-nowrap flex items-center gap-1.5">
                             {packageAmount(pkg).toLocaleString()}{" "}
                             {packageCurrency(pkg)}
+                            {packageIsPromotional(pkg) &&
+                              packageOriginalPrice(pkg) != null &&
+                              packageOriginalPrice(pkg) !== packageAmount(pkg) && (
+                                <span className="text-xs font-medium text-gray-400 line-through">
+                                  {packageOriginalPrice(pkg)!.toLocaleString()}
+                                </span>
+                              )}
                           </div>
                           <div className="text-xs text-gray-400">
                             {pkg.price_unit || pkg.priceUnit || "package"}

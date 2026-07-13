@@ -65,6 +65,9 @@ interface ApiPackage {
   promotion_end_date?: string;
   promotionEndDate?: string;
   serviceId?: string;
+  categoryId?: string;
+  category_id?: string;
+  category?: { id?: string; name?: string; slug?: string } | null;
   itemIds?: string[];
   items?: { serviceId: string; service?: ApiService }[];
   imageUrl?: string;
@@ -77,6 +80,8 @@ interface ApiPackage {
   vendorPhone?: string;
   showOnHomepage?: boolean;
   show_on_homepage?: boolean;
+  showOnPromotionalPage?: boolean;
+  show_on_promotional_page?: boolean;
   isRental?: boolean;
   rentalLocation?: string;
   rentalLocationId?: string;
@@ -154,7 +159,6 @@ export default function EditPackagePage() {
     includedItems: [] as string[],
     features: [] as string[],
     vendorPhone: '',
-    showOnHomepage: false,
     isPromotional: false,
     promotionDiscountType: 'PERCENTAGE',
     promotionDiscountValue: '',
@@ -210,15 +214,43 @@ export default function EditPackagePage() {
         });
 
         const categoryList = Array.from(categoryMap.values());
+
+        const pkgCategoryId = pkg.categoryId || pkg.category_id || pkg.category?.id || '';
+        const pkgCategoryName = pkg.category?.name || '';
+
+        if (pkgCategoryId && !categoryMap.has(pkgCategoryId)) {
+          const injectedCategory: CategoryGroup = {
+            id: pkgCategoryId,
+            name: pkgCategoryName || 'Current category',
+            services: [],
+            isRental: pkg.isRental || false,
+          };
+          categoryMap.set(pkgCategoryId, injectedCategory);
+          categoryList.unshift(injectedCategory);
+        }
+
         setCategories(categoryList);
 
         let selectedCategoryId = '';
         let selectedCategoryIsRental = false;
-        for (const category of categoryList) {
-          if (category.services.some(s => s.id === selectedServiceId)) {
-            selectedCategoryId = category.id;
-            selectedCategoryIsRental = category.isRental || false;
-            break;
+
+        if (pkgCategoryId && categoryMap.has(pkgCategoryId)) {
+          const cat = categoryMap.get(pkgCategoryId)!;
+          selectedCategoryId = cat.id;
+          selectedCategoryIsRental = cat.isRental || false;
+        } else {
+          for (const category of categoryList) {
+            if (category.services.some(s => s.id === selectedServiceId)) {
+              selectedCategoryId = category.id;
+              selectedCategoryIsRental = category.isRental || false;
+              break;
+            }
+          }
+          // Fall back to the package's own category id even if we couldn't
+          // build a matching group from the active services list, so the
+          // dropdown doesn't silently default to an unrelated category.
+          if (!selectedCategoryId && pkgCategoryId) {
+            selectedCategoryId = pkgCategoryId;
           }
         }
 
@@ -249,19 +281,24 @@ export default function EditPackagePage() {
 
         const isRental = pkg.isRental || selectedCategoryIsRental || false;
 
-        // Determine delivery fee type - only 'base' or 'free' as per Add page
+        // Determine delivery fee type - only 'base' or 'free' as per Add page.
+        // Backend may send deliveryFeeType as "fixed" or "base" - normalize both to 'base'.
         let deliveryFeeType = 'base';
         let deliveryFixedFee = '';
-        
-        if (pkg.deliveryFeeType) {
-          deliveryFeeType = pkg.deliveryFeeType;
-        } else if (pkg.deliveryFee !== undefined && pkg.deliveryFee !== null) {
-          if (pkg.deliveryFee === 0) {
-            deliveryFeeType = 'free';
-          } else {
-            deliveryFeeType = 'base';
-            deliveryFixedFee = String(pkg.deliveryFee);
-          }
+
+        const rawFeeType = pkg.deliveryFeeType;
+        if (rawFeeType === 'free') {
+          deliveryFeeType = 'free';
+        } else if (rawFeeType === 'base' || rawFeeType === 'fixed') {
+          deliveryFeeType = 'base';
+        } else if (pkg.deliveryFee === 0) {
+          deliveryFeeType = 'free';
+        } else {
+          deliveryFeeType = 'base';
+        }
+
+        if (deliveryFeeType === 'base' && pkg.deliveryFee !== undefined && pkg.deliveryFee !== null) {
+          deliveryFixedFee = String(pkg.deliveryFee);
         }
 
         setForm({
@@ -275,7 +312,7 @@ export default function EditPackagePage() {
             'per event',
           status: pkg.status || 'ACTIVE',
           serviceId: selectedServiceId,
-          categoryId: selectedCategoryId || categoryList[0]?.id || '',
+          categoryId: selectedCategoryId,
           maxGuests: String(pkg.maxGuests || ''),
           durationHours: String(pkg.durationHours || ''),
           minHours: String(pkg.minHours || ''),
@@ -287,7 +324,6 @@ export default function EditPackagePage() {
           includedItems: pkg.includedItems || pkg.inclusions || [],
           features: pkg.features || [],
           vendorPhone: pkg.vendorPhone || '',
-          showOnHomepage: Boolean(pkg.showOnHomepage ?? pkg.show_on_homepage ?? false),
           isPromotional: Boolean(pkg.isPromotional || pkg.is_promotional),
           promotionDiscountType: pkg.promotionDiscountType || pkg.promotion_discount_type || 'PERCENTAGE',
           promotionDiscountValue: String(pkg.promotionDiscountValue ?? pkg.promotion_discount_value ?? ''),
@@ -622,7 +658,7 @@ export default function EditPackagePage() {
         features: form.features,
         vendorPhone: form.vendorPhone || undefined,
         imageUrl: uploadedImageUrl || existingImage || undefined,
-        showOnHomepage: form.showOnHomepage,
+        showOnPromotionalPage: form.isPromotional,
         isPromotional: form.isPromotional,
         promotionDiscountType: form.isPromotional
           ? form.promotionDiscountType
@@ -1216,28 +1252,6 @@ export default function EditPackagePage() {
               </p>
             </div>
 
-            <div className="flex items-center justify-between gap-3 rounded-2xl border border-gray-200 bg-gray-50 p-4">
-              <div>
-                <p className="text-sm font-semibold text-gray-900">
-                  Show on Homepage
-                </p>
-                <p className="text-xs text-gray-500">
-                  Feature this package on the homepage.
-                </p>
-              </div>
-              <label className="inline-flex cursor-pointer items-center gap-2 text-sm font-medium text-gray-700">
-                <input
-                  type="checkbox"
-                  checked={form.showOnHomepage}
-                  onChange={(e) =>
-                    setField('showOnHomepage', e.target.checked)
-                  }
-                  className="h-4 w-4 rounded border-gray-300 text-orange-500 focus:ring-orange-400"
-                />
-                Enabled
-              </label>
-            </div>
-
             <div>
               <label className="mb-1.5 block text-xs font-semibold tracking-wide text-gray-600">
                 Vendor Phone
@@ -1338,10 +1352,7 @@ export default function EditPackagePage() {
                     type="checkbox"
                     checked={form.isPromotional}
                     onChange={(e) =>
-                      setForm((current) => ({
-                        ...current,
-                        isPromotional: e.target.checked,
-                      }))
+                      setField('isPromotional', e.target.checked)
                     }
                     className="h-4 w-4 rounded border-gray-300 text-orange-500 focus:ring-orange-400"
                   />
