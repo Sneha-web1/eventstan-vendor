@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { vendorApi } from "@/api/vendorApi";
 import { getUser } from "@/lib/auth";
+import { PriceUnitMaster } from "@/lib/priceUnits";
 
 const CITIES = [
   { id: "dubai", name: "Dubai" },
@@ -24,14 +25,6 @@ const CITIES = [
   { id: "ras_al_khaimah", name: "Ras Al Khaimah" },
   { id: "fujairah", name: "Fujairah" },
   { id: "umm_al_quwain", name: "Umm Al Quwain" },
-] as const;
-
-const PRICE_UNITS = [
-  "per event",
-  "per person",
-  "per hour",
-  "per day",
-  "per Piece",
 ] as const;
 
 const emptyForm = {
@@ -75,6 +68,7 @@ export default function AddServicePage() {
   const [categories, setCategories] = useState<
     Array<{ id: string; name: string }>
   >([]);
+  const [priceUnits, setPriceUnits] = useState<PriceUnitMaster[]>([]);
   const [mainImage, setMainImage] = useState<{
     file: File | null;
     preview: string;
@@ -103,20 +97,24 @@ export default function AddServicePage() {
 
     const fetchMasterData = async () => {
       try {
-        const [countries, categoryRows] = await Promise.all([
+        const [countryRows, categoryRows, fetchedPriceUnits] = await Promise.all([
           vendorApi.masterData.countries<
             Array<{ code: string; defaultCurrency: string }>
           >(),
           vendorApi.masterData.categories<
             Array<{ id: string; name: string }>
           >(),
+          vendorApi.masterData.priceUnits<PriceUnitMaster[]>(),
         ]);
-        const uae = countries.find((country) => country.code === "AE");
+        const uae = countryRows.find((country) => country.code === "AE");
+        const activePriceUnits = fetchedPriceUnits.filter((unit) => unit.isActive);
         setCategories(categoryRows);
+        setPriceUnits(activePriceUnits);
         setForm((current) => ({
           ...current,
           currency: uae?.defaultCurrency ?? current.currency,
           categoryId: current.categoryId || categoryRows[0]?.id || "",
+          priceUnit: current.priceUnit || activePriceUnits[0]?.code || "per event",
         }));
       } catch (err) {
         console.error("Error fetching master data:", err);
@@ -162,11 +160,12 @@ export default function AddServicePage() {
     setSlugStatus("checking");
     const timer = window.setTimeout(async () => {
       try {
-        // Option 1: Use a generic fetch
-        const response = await fetch(
-          `/api/services/check-slug?slug=${candidate}`,
+        const result = await vendorApi.services.checkSlug<{
+          slug: string;
+          available: boolean;
+        }>(
+          candidate,
         );
-        const result = await response.json();
         setForm((current) => ({ ...current, slug: result.slug }));
         setSlugStatus(result.available ? "available" : "taken");
       } catch {
@@ -447,9 +446,9 @@ export default function AddServicePage() {
                       }
                       className="w-full px-4 py-2.5 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-200 focus:border-orange-400"
                     >
-                      {PRICE_UNITS.map((unit) => (
-                        <option key={unit} value={unit}>
-                          {unit}
+                      {priceUnits.map((unit) => (
+                        <option key={unit.id} value={unit.code}>
+                          {unit.label}
                         </option>
                       ))}
                     </select>

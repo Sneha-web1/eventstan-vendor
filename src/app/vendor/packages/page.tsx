@@ -56,11 +56,70 @@ interface ApiPackage {
   itemIds?: string[];
   items?: ApiPackageItem[];
   inclusions?: string[];
+  includedItems?: string[];
   features?: string[];
   max_guests?: number;
+  maxGuests?: number;
   duration_hours?: number;
+  durationHours?: number;
   is_popular?: boolean;
   created_at?: string;
+  categoryId?: string;
+  category_id?: string;
+  serviceId?: string;
+  service_id?: string;
+  exactPrice?: number;
+  exact_price?: number;
+  vendorPhone?: string;
+  vendor_phone?: string;
+  imageUrl?: string;
+  image_url?: string;
+  showOnHomepage?: boolean;
+  show_on_homepage?: boolean;
+  isPromotional?: boolean;
+  is_promotional?: boolean;
+  promotionDiscountType?: string;
+  promotion_discount_type?: string;
+  promotionDiscountValue?: number;
+  promotion_discount_value?: number;
+  promotionStartDate?: string;
+  promotion_start_date?: string;
+  promotionEndDate?: string;
+  promotion_end_date?: string;
+  isRental?: boolean;
+  is_rental?: boolean;
+  rentalLocation?: string;
+  rental_location?: string;
+  rentalLocationId?: string;
+  rental_location_id?: string;
+  serviceArea?: string;
+  service_area?: string;
+  deliveryRadius?: number;
+  delivery_radius?: number;
+  deliveryFeeType?: string;
+  delivery_fee_type?: string;
+  deliveryFee?: number;
+  delivery_fee?: number;
+  pickupAvailable?: boolean;
+  pickup_available?: boolean;
+  deliveryAvailable?: boolean;
+  delivery_available?: boolean;
+  requiresDeposit?: boolean;
+  requires_deposit?: boolean;
+  depositAmount?: number;
+  deposit_amount?: number;
+  minHours?: number;
+  min_hours?: number;
+  maxHours?: number;
+  max_hours?: number;
+  minPersons?: number;
+  min_persons?: number;
+  maxPersons?: number;
+  max_persons?: number;
+  minPieces?: number;
+  min_pieces?: number;
+  maxPieces?: number;
+  max_pieces?: number;
 }
 
 function packageAmount(pkg: ApiPackage) {
@@ -417,22 +476,89 @@ export default function PackagesPage() {
 
   const handleToggle = async () => {
     if (!toggleTarget) return;
-    const newStatus = toggleTarget.status === "ACTIVE" ? "INACTIVE" : "ACTIVE";
+    const pkg = toggleTarget;
+    const newStatus = pkg.status === "ACTIVE" ? "INACTIVE" : "ACTIVE";
+
+    // The backend validates the FULL package payload even on a partial PATCH
+    // (e.g. it still requires minHours > 0 for hourly packages). So instead
+    // of sending just { status }, we resend the package's existing data via
+    // the same PUT endpoint the Edit page uses, only flipping status.
+    const services = packageServices(pkg);
+    const serviceId = pkg.serviceId || pkg.service_id || services[0]?.serviceId || "";
+    const minHours = pkg.minHours ?? pkg.min_hours;
+    const maxHours = pkg.maxHours ?? pkg.max_hours;
+    const minPersons = pkg.minPersons ?? pkg.min_persons;
+    const maxPersons = pkg.maxPersons ?? pkg.max_persons;
+    const minPieces = pkg.minPieces ?? pkg.min_pieces;
+    const maxPieces = pkg.maxPieces ?? pkg.max_pieces;
+    const isRental = pkg.isRental ?? pkg.is_rental ?? false;
+
+    const payload: Record<string, unknown> = {
+      vendorId: pkg.vendorId,
+      title: pkg.title || pkg.name,
+      description: pkg.description || "",
+      categoryId: pkg.categoryId || pkg.category_id || undefined,
+      serviceId,
+      exactPrice: pkg.exactPrice ?? pkg.exact_price ?? packageAmount(pkg),
+      currency: packageCurrency(pkg),
+      priceUnit: pkg.priceUnit || pkg.price_unit || "package",
+      status: newStatus,
+      maxGuests: pkg.maxGuests ?? pkg.max_guests ?? undefined,
+      durationHours: pkg.durationHours ?? pkg.duration_hours ?? undefined,
+      includedItems: pkg.includedItems || pkg.inclusions || [],
+      features: pkg.features || [],
+      vendorPhone: pkg.vendorPhone || pkg.vendor_phone || undefined,
+      imageUrl: pkg.imageUrl || pkg.image_url || undefined,
+      showOnHomepage: pkg.showOnHomepage ?? pkg.show_on_homepage ?? false,
+      isPromotional: pkg.isPromotional ?? pkg.is_promotional ?? false,
+      promotionDiscountType: pkg.promotionDiscountType || pkg.promotion_discount_type || undefined,
+      promotionDiscountValue: pkg.promotionDiscountValue ?? pkg.promotion_discount_value ?? undefined,
+      promotionStartDate: pkg.promotionStartDate || pkg.promotion_start_date || undefined,
+      promotionEndDate: pkg.promotionEndDate || pkg.promotion_end_date || undefined,
+    };
+
+    if (isRental) {
+      payload.isRental = true;
+      payload.rentalLocation = pkg.rentalLocation || pkg.rental_location || "";
+      payload.rentalLocationId = pkg.rentalLocationId || pkg.rental_location_id || "";
+      payload.serviceArea = pkg.serviceArea || pkg.service_area || undefined;
+      payload.deliveryRadius = pkg.deliveryRadius ?? pkg.delivery_radius ?? undefined;
+      payload.deliveryFeeType = pkg.deliveryFeeType || pkg.delivery_fee_type || undefined;
+      payload.deliveryFee = pkg.deliveryFee ?? pkg.delivery_fee ?? undefined;
+      payload.pickupAvailable = pkg.pickupAvailable ?? pkg.pickup_available ?? true;
+      payload.deliveryAvailable = pkg.deliveryAvailable ?? pkg.delivery_available ?? true;
+      payload.requiresDeposit = pkg.requiresDeposit ?? pkg.requires_deposit ?? false;
+      payload.depositAmount = pkg.depositAmount ?? pkg.deposit_amount ?? undefined;
+    }
+
+    if (minHours != null || maxHours != null) {
+      payload.minHours = minHours;
+      payload.maxHours = maxHours;
+    } else if (minPersons != null || maxPersons != null) {
+      payload.minPersons = minPersons;
+      payload.maxPersons = maxPersons;
+    } else if (minPieces != null || maxPieces != null) {
+      payload.minPieces = minPieces;
+      payload.maxPieces = maxPieces;
+    }
+
     try {
-      await vendorApi.packages.updateStatus(toggleTarget.id, newStatus);
-      setPackages((cur) =>
-        cur.map((pkg) =>
-          pkg.id === toggleTarget.id ? { ...pkg, status: newStatus } : pkg,
-        ),
-      );
+      await vendorApi.packages.update(pkg.id, payload);
+      const fresh = await vendorApi.packages.list<ApiPackage[]>();
+      setPackages(fresh);
       setSuccess(
-        `"${toggleTarget.title}" ${newStatus === "ACTIVE" ? "activated" : "deactivated"}`,
+        `"${pkg.title}" ${newStatus === "ACTIVE" ? "activated" : "deactivated"}`,
       );
       setToggleTarget(null);
       window.setTimeout(() => setSuccess(""), 3000);
-    } catch {
-      setError("Failed to update package status.");
-      window.setTimeout(() => setError(null), 4000);
+    } catch (err) {
+      console.error("Failed to update package status:", err);
+      setError(
+        err instanceof Error
+          ? `Failed to update package status: ${err.message}`
+          : "Failed to update package status.",
+      );
+      window.setTimeout(() => setError(null), 5000);
     }
   };
 

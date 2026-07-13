@@ -87,6 +87,10 @@ export const vendorApi = {
         headers: headers(getVendorToken()),
       }),
     get: <T = unknown>(id: string) => request<T>(`services/${id}`, { headers: headers() }),
+    checkSlug: <T = unknown>(slug: string, excludeId?: string) =>
+      request<T>(
+        `services/slug-availability?slug=${encodeURIComponent(slug)}${excludeId ? `&excludeId=${encodeURIComponent(excludeId)}` : ''}`,
+      ),
     create: <T = unknown>(payload: JsonBody) => request<T>('services', jsonOptions('POST', payload)),
     update: <T = unknown>(id: string, payload: JsonBody) => request<T>(`services/${id}`, jsonOptions('PUT', payload)),
     updateStatus: (id: string, status: string) =>
@@ -110,8 +114,17 @@ export const vendorApi = {
     delete: (id: string) => request<void>(`packages/${id}`, jsonOptions('DELETE')),
   },
 
+  support: {
+    list: <T = unknown[]>() => request<T>('support/tickets', { cache: 'no-store', headers: headers() }),
+    get: <T = unknown>(id: string) => request<T>(`support/tickets/${id}`, { cache: 'no-store', headers: headers() }),
+    create: <T = unknown>(payload: JsonBody) => request<T>('support/tickets', jsonOptions('POST', payload)),
+    reply: <T = unknown>(id: string, payload: JsonBody) =>
+      request<T>(`support/tickets/${id}/replies`, jsonOptions('POST', payload)),
+  },
+
   masterData: {
     countries: <T = unknown[]>() => request<T>('master-data/countries'),
     categories: <T = unknown[]>() => request<T>('master-data/categories'),
+    priceUnits: <T = unknown[]>() => request<T>('master-data/price-units'),
   },
 };

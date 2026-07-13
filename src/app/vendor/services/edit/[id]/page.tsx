@@ -14,14 +14,7 @@ import {
   X,
 } from "lucide-react";
 import { vendorApi } from "@/api/vendorApi";
-
-const PRICE_UNITS = [
-  "per event",
-  "per person",
-  "per hour",
-  "per day",
-  "per piece",
-] as const;
+import { findPriceUnit, PriceUnitMaster } from "@/lib/priceUnits";
 
 interface ApiService {
   id: string;
@@ -42,16 +35,7 @@ interface ApiService {
   features?: string[];
 }
 
-// `vendorApi.services` may not (yet) implement `checkSlug` on the backend/client
-// definition. This local type lets us call it when present without requiring
-// changes to vendorApi.ts, and we guard the call at runtime with a typeof check.
 type SlugCheckResult = { slug: string; available: boolean };
-type VendorServicesApi = typeof vendorApi.services & {
-  checkSlug?: <T = SlugCheckResult>(
-    slug: string,
-    excludeId?: string,
-  ) => Promise<T>;
-};
 
 const emptyForm = {
   title: "",
@@ -84,9 +68,8 @@ export default function EditServicePage() {
   const fileRef = useRef<HTMLInputElement>(null);
   const galleryInputRef = useRef<HTMLInputElement>(null);
 
-  const servicesApi = vendorApi.services as VendorServicesApi;
-
   const [service, setService] = useState<ApiService | null>(null);
+  const [priceUnits, setPriceUnits] = useState<PriceUnitMaster[]>([]);
   const [form, setForm] = useState(emptyForm);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -113,8 +96,13 @@ export default function EditServicePage() {
       try {
         setLoading(true);
         setError("");
-        const data = await vendorApi.services.get<ApiService>(id);
+        const [data, fetchedPriceUnits] = await Promise.all([
+          vendorApi.services.get<ApiService>(id),
+          vendorApi.masterData.priceUnits<PriceUnitMaster[]>(),
+        ]);
         setService(data);
+        setPriceUnits(fetchedPriceUnits.filter((unit) => unit.isActive));
+        const activePriceUnits = fetchedPriceUnits.filter((unit) => unit.isActive);
         setForm({
           title: data.title || "",
           slug: data.slug || slugify(data.title || ""),
@@ -123,7 +111,10 @@ export default function EditServicePage() {
           amount: String(data.price?.amount ?? ""),
           currency: data.price?.currency || "AED",
           priceMax: String(data.price_max ?? ""),
-          priceUnit: data.price_unit || "per event",
+          priceUnit:
+            findPriceUnit(activePriceUnits, data.price_unit)?.code ||
+            activePriceUnits[0]?.code ||
+            "per event",
           status: data.status || "ACTIVE",
           tags: data.tags || [],
           features: data.features || [],
@@ -178,17 +169,10 @@ export default function EditServicePage() {
       return;
     }
 
-    // If the backend/client doesn't support slug availability checks yet,
-    // skip silently instead of leaving the UI stuck on "checking...".
-    if (typeof servicesApi.checkSlug !== "function") {
-      setSlugStatus("idle");
-      return;
-    }
-
     setSlugStatus("checking");
     const timer = window.setTimeout(async () => {
       try {
-        const result = await servicesApi.checkSlug!<SlugCheckResult>(
+        const result = await vendorApi.services.checkSlug<SlugCheckResult>(
           candidate,
           id,
         );
@@ -200,7 +184,7 @@ export default function EditServicePage() {
     }, 400);
 
     return () => window.clearTimeout(timer);
-  }, [form.slug, id, servicesApi]);
+  }, [form.slug, id]);
 
   const handleMainImageUpload = async (file?: File) => {
     if (!file) return;
@@ -491,9 +475,9 @@ export default function EditServicePage() {
                       }
                       className="w-full px-4 py-2.5 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-200 focus:border-orange-400"
                     >
-                      {PRICE_UNITS.map((unit) => (
-                        <option key={unit} value={unit}>
-                          {unit}
+                      {priceUnits.map((unit) => (
+                        <option key={unit.id} value={unit.code}>
+                          {unit.label}
                         </option>
                       ))}
                     </select>

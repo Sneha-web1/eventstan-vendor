@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { vendorApi } from '@/api/vendorApi';
 import { getUser } from '@/lib/auth';
+import { findPriceUnit, PriceUnitMaster } from '@/lib/priceUnits';
 
 interface ApiService {
   id: string;
@@ -71,7 +72,11 @@ interface ApiPackage {
   maxGuests?: number;
   durationHours?: number;
   includedItems?: string[];
+  inclusions?: string[];
+  features?: string[];
   vendorPhone?: string;
+  showOnHomepage?: boolean;
+  show_on_homepage?: boolean;
   isRental?: boolean;
   rentalLocation?: string;
   rentalLocationId?: string;
@@ -91,13 +96,7 @@ interface ApiPackage {
   maxPieces?: number;
 }
 
-const PRICE_UNIT_OPTIONS = [
-  { value: 'per_event', label: 'per event' },
-  { value: 'per_person', label: 'per person' },
-  { value: 'per_hour', label: 'per hour' },
-  { value: 'per_day', label: 'per day' },
-  { value: 'per_piece', label: 'per piece' },
-];
+const DESCRIPTION_CHAR_LIMIT = 1500;
 
 // Same as Add page - only Base Fee and Free Delivery
 const DELIVERY_FEE_TYPES = [
@@ -124,6 +123,7 @@ export default function EditPackagePage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [services, setServices] = useState<ApiService[]>([]);
   const [categories, setCategories] = useState<CategoryGroup[]>([]);
+  const [priceUnits, setPriceUnits] = useState<PriceUnitMaster[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState('');
@@ -132,13 +132,14 @@ export default function EditPackagePage() {
   const [existingImage, setExistingImage] = useState<string | null>(null);
   const [uploadingImage, setUploadingImage] = useState(false);
   const [newIncludedItem, setNewIncludedItem] = useState('');
+  const [newFeature, setNewFeature] = useState('');
 
   const [form, setForm] = useState({
     title: '',
     description: '',
     price: '',
     currency: 'AED',
-    priceUnit: 'per_event',
+    priceUnit: 'per event',
     status: 'ACTIVE',
     serviceId: '',
     categoryId: '',
@@ -151,7 +152,9 @@ export default function EditPackagePage() {
     minPieces: '',
     maxPieces: '',
     includedItems: [] as string[],
+    features: [] as string[],
     vendorPhone: '',
+    showOnHomepage: false,
     isPromotional: false,
     promotionDiscountType: 'PERCENTAGE',
     promotionDiscountValue: '',
@@ -175,10 +178,13 @@ export default function EditPackagePage() {
       if (!id) return;
       
       try {
-        const [pkg, rows] = await Promise.all([
+        const [pkg, rows, fetchedPriceUnits] = await Promise.all([
           vendorApi.packages.get<ApiPackage>(id),
           vendorApi.services.list<ApiService[]>(),
+          vendorApi.masterData.priceUnits<PriceUnitMaster[]>(),
         ]);
+        const activePriceUnits = fetchedPriceUnits.filter((unit) => unit.isActive);
+        setPriceUnits(activePriceUnits);
 
         const selectedServiceId = pkg.serviceId || pkg.items?.[0]?.serviceId || pkg.itemIds?.[0] || '';
         const activeRows = rows.filter(
@@ -263,7 +269,10 @@ export default function EditPackagePage() {
           description: pkg.description || '',
           price: String(pkg.money?.amount ?? pkg.amount ?? pkg.price ?? 0),
           currency: pkg.money?.currency ?? pkg.currency ?? 'AED',
-          priceUnit: pkg.priceUnit || pkg.price_unit || 'per_event',
+          priceUnit:
+            findPriceUnit(activePriceUnits, pkg.priceUnit || pkg.price_unit)?.code ||
+            activePriceUnits[0]?.code ||
+            'per event',
           status: pkg.status || 'ACTIVE',
           serviceId: selectedServiceId,
           categoryId: selectedCategoryId || categoryList[0]?.id || '',
@@ -275,8 +284,10 @@ export default function EditPackagePage() {
           maxPersons: String(pkg.maxPersons || ''),
           minPieces: String(pkg.minPieces || ''),
           maxPieces: String(pkg.maxPieces || ''),
-          includedItems: pkg.includedItems || [],
+          includedItems: pkg.includedItems || pkg.inclusions || [],
+          features: pkg.features || [],
           vendorPhone: pkg.vendorPhone || '',
+          showOnHomepage: Boolean(pkg.showOnHomepage ?? pkg.show_on_homepage ?? false),
           isPromotional: Boolean(pkg.isPromotional || pkg.is_promotional),
           promotionDiscountType: pkg.promotionDiscountType || pkg.promotion_discount_type || 'PERCENTAGE',
           promotionDiscountValue: String(pkg.promotionDiscountValue ?? pkg.promotion_discount_value ?? ''),
@@ -347,7 +358,9 @@ export default function EditPackagePage() {
       categoryId,
       serviceId: firstService?.id || '',
       currency: firstService?.price?.currency || current.currency,
-      priceUnit: firstService?.price_unit || current.priceUnit,
+      priceUnit:
+        findPriceUnit(priceUnits, firstService?.price_unit)?.code ||
+        current.priceUnit,
       isRental: isRental,
       ...(isRental
         ? {}
@@ -392,6 +405,35 @@ export default function EditPackagePage() {
     }
   };
 
+  const addFeature = () => {
+    const trimmed = newFeature.trim();
+    if (!trimmed) return;
+    if (form.features.includes(trimmed)) {
+      setFormError('This feature is already added.');
+      return;
+    }
+    setForm((current) => ({
+      ...current,
+      features: [...current.features, trimmed],
+    }));
+    setNewFeature('');
+    setFormError('');
+  };
+
+  const removeFeature = (index: number) => {
+    setForm((current) => ({
+      ...current,
+      features: current.features.filter((_, i) => i !== index),
+    }));
+  };
+
+  const handleFeatureKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      addFeature();
+    }
+  };
+
   const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -430,12 +472,12 @@ export default function EditPackagePage() {
       setFormError('Package title is required.');
       return;
     }
-    if (!form.serviceId) {
-      setFormError('Please choose one service for this package.');
-      return;
-    }
     if (!form.price || Number(form.price) <= 0) {
       setFormError('Valid package price is required.');
+      return;
+    }
+    if (form.description.length > DESCRIPTION_CHAR_LIMIT) {
+      setFormError(`Description cannot exceed ${DESCRIPTION_CHAR_LIMIT} characters.`);
       return;
     }
     if (!form.priceUnit) {
@@ -463,7 +505,7 @@ export default function EditPackagePage() {
       }
     }
 
-    if (form.priceUnit === 'per_hour') {
+    if (selectedPriceUnit?.requiresHourRange) {
       if (!form.minHours || Number(form.minHours) <= 0) {
         setFormError('Minimum hours is required and must be greater than 0.');
         return;
@@ -478,7 +520,7 @@ export default function EditPackagePage() {
       }
     }
 
-    if (form.priceUnit === 'per_person') {
+    if (selectedPriceUnit?.requiresPersonRange) {
       if (!form.minPersons || Number(form.minPersons) <= 0) {
         setFormError('Minimum persons is required and must be greater than 0.');
         return;
@@ -493,7 +535,7 @@ export default function EditPackagePage() {
       }
     }
 
-    if (form.priceUnit === 'per_piece') {
+    if (selectedPriceUnit?.requiresPieceRange) {
       if (!form.minPieces || Number(form.minPieces) <= 0) {
         setFormError('Minimum pieces is required and must be greater than 0.');
         return;
@@ -566,6 +608,7 @@ export default function EditPackagePage() {
         vendorId,
         title: form.title.trim(),
         description: form.description.trim(),
+        categoryId: form.categoryId || undefined,
         serviceId: form.serviceId,
         exactPrice: Number(form.price),
         currency: form.currency,
@@ -576,8 +619,10 @@ export default function EditPackagePage() {
           ? Number(form.durationHours)
           : undefined,
         includedItems: form.includedItems,
+        features: form.features,
         vendorPhone: form.vendorPhone || undefined,
         imageUrl: uploadedImageUrl || existingImage || undefined,
+        showOnHomepage: form.showOnHomepage,
         isPromotional: form.isPromotional,
         promotionDiscountType: form.isPromotional
           ? form.promotionDiscountType
@@ -617,13 +662,13 @@ export default function EditPackagePage() {
         }
       }
 
-      if (form.priceUnit === 'per_hour') {
+      if (selectedPriceUnit?.requiresHourRange) {
         packageData.minHours = Number(form.minHours);
         packageData.maxHours = Number(form.maxHours);
-      } else if (form.priceUnit === 'per_person') {
+      } else if (selectedPriceUnit?.requiresPersonRange) {
         packageData.minPersons = Number(form.minPersons);
         packageData.maxPersons = Number(form.maxPersons);
-      } else if (form.priceUnit === 'per_piece') {
+      } else if (selectedPriceUnit?.requiresPieceRange) {
         packageData.minPieces = Number(form.minPieces);
         packageData.maxPieces = Number(form.maxPieces);
       }
@@ -657,9 +702,11 @@ export default function EditPackagePage() {
     );
   }
 
-  const showHourFields = form.priceUnit === 'per_hour';
-  const showPersonFields = form.priceUnit === 'per_person';
-  const showPieceFields = form.priceUnit === 'per_piece';
+  const selectedPriceUnit = findPriceUnit(priceUnits, form.priceUnit);
+  const descriptionCharCount = form.description.length;
+  const showHourFields = Boolean(selectedPriceUnit?.requiresHourRange);
+  const showPersonFields = Boolean(selectedPriceUnit?.requiresPersonRange);
+  const showPieceFields = Boolean(selectedPriceUnit?.requiresPieceRange);
   const showRentalFields = form.isRental;
 
   return (
@@ -718,13 +765,13 @@ export default function EditPackagePage() {
                   {categories.map((category) => (
                     <option key={category.id} value={category.id}>
                       {category.name} ({category.services.length})
-                      {category.isRental && ' 🏠'}
+                      {category.isRental}
                     </option>
                   ))}
                 </select>
                 {form.isRental && (
                   <p className="mt-1 text-xs text-orange-600">
-                    🏠 Rental category selected - delivery/pickup options
+                    Rental category selected - delivery/pickup options
                     available
                   </p>
                 )}
@@ -745,7 +792,9 @@ export default function EditPackagePage() {
                       serviceId: e.target.value,
                       currency:
                         nextService?.price?.currency || current.currency,
-                      priceUnit: nextService?.price_unit || current.priceUnit,
+                      priceUnit:
+                        findPriceUnit(priceUnits, nextService?.price_unit)?.code ||
+                        current.priceUnit,
                     }));
                     setFormError('');
                   }}
@@ -779,11 +828,28 @@ export default function EditPackagePage() {
               </label>
               <textarea
                 value={form.description}
-                onChange={(e) => setField('description', e.target.value)}
+                onChange={(e) => {
+                  const value = e.target.value;
+                  if (value.length > DESCRIPTION_CHAR_LIMIT) {
+                    setField('description', value.slice(0, DESCRIPTION_CHAR_LIMIT));
+                    return;
+                  }
+                  setField('description', value);
+                }}
+                maxLength={DESCRIPTION_CHAR_LIMIT}
                 rows={3}
                 placeholder="Describe the package outcome, style, and what customers should expect."
                 className="w-full resize-none rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-900 outline-none transition focus:border-orange-400 focus:ring-4 focus:ring-orange-100"
               />
+              <p
+                className={`mt-1 text-right text-xs ${
+                  descriptionCharCount >= DESCRIPTION_CHAR_LIMIT
+                    ? 'text-red-500'
+                    : 'text-gray-400'
+                }`}
+              >
+                {descriptionCharCount}/{DESCRIPTION_CHAR_LIMIT} characters
+              </p>
             </div>
 
             <div className="grid gap-3 sm:grid-cols-4">
@@ -822,8 +888,8 @@ export default function EditPackagePage() {
                   className="w-full rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-900 outline-none transition focus:border-orange-400 focus:ring-4 focus:ring-orange-100"
                 >
                   <option value="">Select unit</option>
-                  {PRICE_UNIT_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.value}>
+                  {priceUnits.map((option) => (
+                    <option key={option.id} value={option.code}>
                       {option.label}
                     </option>
                   ))}
@@ -1106,15 +1172,84 @@ export default function EditPackagePage() {
 
             <div>
               <label className="mb-1.5 block text-xs font-semibold tracking-wide text-gray-600">
+                Features
+              </label>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={newFeature}
+                  onChange={(e) => setNewFeature(e.target.value)}
+                  onKeyDown={handleFeatureKeyDown}
+                  placeholder="e.g. Indoor"
+                  className="flex-1 rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-900 outline-none transition focus:border-orange-400 focus:ring-4 focus:ring-orange-100"
+                />
+                <button
+                  onClick={addFeature}
+                  className="flex items-center gap-1 rounded-2xl bg-orange-500 px-4 py-3 text-sm font-medium text-white transition hover:bg-orange-600"
+                >
+                  <Plus size={18} />
+                  Add
+                </button>
+              </div>
+
+              {form.features.length > 0 && (
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {form.features.map((item, index) => (
+                    <span
+                      key={index}
+                      className="inline-flex items-center gap-1.5 rounded-2xl bg-orange-50 px-3 py-1.5 text-sm text-orange-700 border border-orange-200"
+                    >
+                      {item}
+                      <button
+                        onClick={() => removeFeature(index)}
+                        className="rounded-full p-0.5 text-orange-400 hover:bg-orange-200 hover:text-orange-600 transition-colors"
+                      >
+                        <X size={14} />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
+              <p className="mt-1.5 text-xs text-gray-400">
+                Press Enter or click Add to add a feature. Click the X to
+                remove.
+              </p>
+            </div>
+
+            <div className="flex items-center justify-between gap-3 rounded-2xl border border-gray-200 bg-gray-50 p-4">
+              <div>
+                <p className="text-sm font-semibold text-gray-900">
+                  Show on Homepage
+                </p>
+                <p className="text-xs text-gray-500">
+                  Feature this package on the homepage.
+                </p>
+              </div>
+              <label className="inline-flex cursor-pointer items-center gap-2 text-sm font-medium text-gray-700">
+                <input
+                  type="checkbox"
+                  checked={form.showOnHomepage}
+                  onChange={(e) =>
+                    setField('showOnHomepage', e.target.checked)
+                  }
+                  className="h-4 w-4 rounded border-gray-300 text-orange-500 focus:ring-orange-400"
+                />
+                Enabled
+              </label>
+            </div>
+
+            <div>
+              <label className="mb-1.5 block text-xs font-semibold tracking-wide text-gray-600">
                 Vendor Phone
               </label>
               <input
-                type="tel"
-                value={form.vendorPhone}
-                onChange={(e) => setField('vendorPhone', e.target.value)}
-                placeholder="e.g. +971 50 123 4567"
-                className="w-full rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-900 outline-none transition focus:border-orange-400 focus:ring-4 focus:ring-orange-100"
-              />
+                  type="tel"
+                  value={form.vendorPhone}
+                  readOnly
+                  disabled
+                  placeholder="e.g. +971 50 123 4567"
+                  className="w-full cursor-not-allowed rounded-2xl border border-gray-200 bg-gray-50 pl-9 pr-9 py-3 text-sm text-gray-500 outline-none"
+                />
             </div>
 
             <div>
