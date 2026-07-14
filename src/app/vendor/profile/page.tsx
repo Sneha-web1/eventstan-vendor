@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   Save,
@@ -21,7 +21,12 @@ import {
   Lock,
   ChevronDown,
   CheckCircle2,
+  Upload,
+  ExternalLink,
+  X,
   Eye,
+  RefreshCw,
+  Trash2,
   EyeOff,
   AlertTriangle,
 } from "lucide-react";
@@ -35,6 +40,7 @@ interface VendorProfile {
   contactPerson: string;
   email: string;
   phone: string;
+  vendorProfileImage?: string | null;
   about?: string | null;
   businessLocation?: string | null;
   address?: string | null;
@@ -43,6 +49,7 @@ interface VendorProfile {
   cities: string[];
   capacityPerDay: number;
   status: string;
+  vendorType?: string | null;
   // Personal
   firstName?: string | null;
   lastName?: string | null;
@@ -51,6 +58,13 @@ interface VendorProfile {
   telephone?: string | null;
   // Legal / Business
   tradeLicenseNumber?: string | null;
+  tradeLicenseExpiry?: string | null;
+  tradeLicenseFileUrl?: string | null;
+  tradeLicenseFileKey?: string | null;
+  passportExpiry?: string | null;
+  passportFileUrl?: string | null;
+  passportFileKey?: string | null;
+  emiratesIdExpiry?: string | null;
   vatNumber?: string | null;
   visaType?: string | null;
   // Plan
@@ -81,6 +95,21 @@ function formatDate(iso?: string | null) {
 function isPlanExpired(iso?: string | null) {
   if (!iso) return false;
   return new Date(iso) < new Date();
+}
+
+function isDocExpired(iso?: string | null) {
+  if (!iso) return false;
+  return new Date(iso) < new Date();
+}
+
+function slugifyUsername(first?: string | null, last?: string | null) {
+  return [first, last]
+    .filter(Boolean)
+    .join(" ")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
 }
 
 function hasValue(value: string | number | string[] | null | undefined) {
@@ -175,6 +204,85 @@ function Field({
           />
         )}
       </div>
+    </div>
+  );
+}
+
+function FileUploadField({
+  label,
+  fileUrl,
+  onUploaded,
+  folder,
+}: {
+  label: string;
+  fileUrl?: string | null;
+  onUploaded: (result: { url: string; key: string }) => void;
+  folder: string;
+}) {
+  const [uploading, setUploading] = useState(false);
+  const inputId = `upload-${folder}-${label.replace(/\s+/g, "-").toLowerCase()}`;
+
+  const handleFile = async (file: File) => {
+    try {
+      setUploading(true);
+      const result = await vendorApi.uploads.image(file, folder);
+      onUploaded({ url: result.url, key: result.key });
+    } catch {
+      // upload failed silently; parent can show a toast if desired
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  return (
+    <div>
+      <label className="text-xs font-medium text-gray-500 mb-1 block">
+        {label}
+      </label>
+      <div className="flex items-center gap-2">
+        <label
+          htmlFor={inputId}
+          className="flex-1 flex items-center gap-2 px-4 py-2.5 text-sm border border-dashed border-gray-300 rounded-xl cursor-pointer hover:border-orange-400 hover:bg-orange-50/40 transition text-gray-500"
+        >
+          {uploading ? (
+            <Loader2 size={14} className="animate-spin text-orange-500" />
+          ) : (
+            <Upload size={14} className="text-gray-400" />
+          )}
+          <span className="truncate">
+            {uploading
+              ? "Uploading..."
+              : fileUrl
+                ? "Replace file"
+                : "Upload file (PDF, JPG, PNG)"}
+          </span>
+        </label>
+        <input
+          id={inputId}
+          type="file"
+          accept=".pdf,image/*"
+          className="hidden"
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            if (file) void handleFile(file);
+            e.target.value = "";
+          }}
+        />
+        {fileUrl && (
+          <a
+            href={fileUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="p-2.5 rounded-xl border border-gray-200 text-gray-400 hover:text-orange-500 hover:border-orange-300 transition shrink-0"
+            title="View uploaded file"
+          >
+            <ExternalLink size={14} />
+          </a>
+        )}
+      </div>
+      <p className="text-xs text-gray-400 mt-1">
+        {fileUrl ? "File uploaded. The link updates once you replace it." : "No file uploaded yet."}
+      </p>
     </div>
   );
 }
@@ -327,6 +435,22 @@ export default function ProfilePage() {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const [cityInput, setCityInput] = useState("");
+  const [avatarMenuOpen, setAvatarMenuOpen] = useState(false);
+  const [showPhoto, setShowPhoto] = useState(false);
+  const avatarMenuRef = useRef<HTMLDivElement | null>(null);
+  const avatarInputRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (avatarMenuRef.current && !avatarMenuRef.current.contains(e.target as Node)) {
+        setAvatarMenuOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
 
   useEffect(() => {
     vendorApi.profile
@@ -339,6 +463,15 @@ export default function ProfilePage() {
       )
       .finally(() => setLoading(false));
   }, []);
+
+  useEffect(() => {
+    if (!profile) return;
+    const generated = slugifyUsername(profile.firstName, profile.lastName);
+    if (generated && generated !== profile.userName) {
+      setProfile((cur) => (cur ? { ...cur, userName: generated } : cur));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profile?.firstName, profile?.lastName]);
 
   const update = <K extends keyof VendorProfile>(
     key: K,
@@ -356,6 +489,7 @@ export default function ProfilePage() {
         contactPerson: profile.contactPerson,
         email: profile.email,
         phone: profile.phone,
+        vendorProfileImage: profile.vendorProfileImage ?? "",
         firstName: profile.firstName ?? "",
         lastName: profile.lastName ?? "",
         userName: profile.userName ?? "",
@@ -369,6 +503,13 @@ export default function ProfilePage() {
         cities: profile.cities,
         capacityPerDay: profile.capacityPerDay,
         tradeLicenseNumber: profile.tradeLicenseNumber ?? "",
+        tradeLicenseExpiry: profile.tradeLicenseExpiry ?? "",
+        tradeLicenseFileUrl: profile.tradeLicenseFileUrl ?? "",
+        tradeLicenseFileKey: profile.tradeLicenseFileKey ?? "",
+        passportExpiry: profile.passportExpiry ?? "",
+        passportFileUrl: profile.passportFileUrl ?? "",
+        passportFileKey: profile.passportFileKey ?? "",
+        emiratesIdExpiry: profile.emiratesIdExpiry ?? "",
         vatNumber: profile.vatNumber ?? "",
         visaType: profile.visaType ?? "",
         planDetails: profile.planDetails ?? "",
@@ -390,6 +531,7 @@ export default function ProfilePage() {
         companyName: updated.companyName,
         email: updated.email,
         phone: updated.phone,
+        image: updated.vendorProfileImage,
         updatedProfile: true,
       });
       setMessage("Profile saved successfully.");
@@ -420,6 +562,7 @@ export default function ProfilePage() {
   }
 
   const expired = isPlanExpired(profile.planExpiry);
+  const isFreelancer = profile.vendorType === "FREELANCER";
   const completionChecks = [
     { label: "Business name", done: hasValue(profile.companyName) },
     { label: "Contact person", done: hasValue(profile.contactPerson) },
@@ -430,9 +573,16 @@ export default function ProfilePage() {
     { label: "Address", done: hasValue(profile.address) },
     { label: "Specialization", done: hasValue(profile.specialization) },
     { label: "Service cities", done: hasValue(profile.cities) },
-    { label: "Trade license", done: hasValue(profile.tradeLicenseNumber) },
+    ...(isFreelancer
+      ? []
+      : [
+          { label: "Trade license", done: hasValue(profile.tradeLicenseNumber) },
+          { label: "Trade license expiry", done: hasValue(profile.tradeLicenseExpiry) },
+        ]),
     { label: "VAT number", done: hasValue(profile.vatNumber) },
     { label: "Primary mobile", done: hasValue(profile.primaryMobile) },
+    { label: "Passport expiry", done: hasValue(profile.passportExpiry) },
+    { label: "Emirates ID expiry", done: hasValue(profile.emiratesIdExpiry) },
     { label: "Bank name", done: hasValue(profile.bankName) },
     { label: "Account name", done: hasValue(profile.accountFullName) },
     { label: "IBAN", done: hasValue(profile.ibanNo) },
@@ -520,28 +670,122 @@ export default function ProfilePage() {
 
       {/* ── Avatar card ── */}
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 flex items-center gap-4">
-        <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-orange-400 to-orange-600 flex items-center justify-center text-white font-bold text-lg shrink-0">
-          {profile.companyName
-            .split(" ")
-            .map((p) => p[0])
-            .slice(0, 2)
-            .join("")
-            .toUpperCase()}
+        <div className="relative shrink-0" ref={avatarMenuRef}>
+          <button
+            type="button"
+            onClick={() => setAvatarMenuOpen((o) => !o)}
+            className="relative w-14 h-14 rounded-2xl bg-gradient-to-br from-orange-400 to-orange-600 flex items-center justify-center text-white font-bold text-lg overflow-hidden group focus:outline-none"
+            title="Manage profile photo"
+          >
+            {profile.vendorProfileImage ? (
+              <img
+                src={profile.vendorProfileImage}
+                alt={profile.companyName}
+                className="w-full h-full object-cover"
+              />
+            ) : (
+              profile.companyName
+                .split(" ")
+                .map((p) => p[0])
+                .slice(0, 2)
+                .join("")
+                .toUpperCase()
+            )}
+            <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+              {uploadingAvatar ? (
+                <Loader2 size={16} className="animate-spin text-white" />
+              ) : (
+                <Upload size={16} className="text-white" />
+              )}
+            </div>
+          </button>
+
+          {avatarMenuOpen && (
+            <div className="absolute z-20 top-full left-0 mt-2 w-40 bg-white rounded-xl border border-gray-100 shadow-lg py-1.5 overflow-hidden">
+              {profile.vendorProfileImage && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAvatarMenuOpen(false);
+                    setShowPhoto(true);
+                  }}
+                  className="w-full flex items-center gap-2 px-3.5 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                >
+                  <Eye size={14} className="text-gray-400" /> View
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => {
+                  setAvatarMenuOpen(false);
+                  avatarInputRef.current?.click();
+                }}
+                className="w-full flex items-center gap-2 px-3.5 py-2 text-sm text-gray-700 hover:bg-gray-50"
+              >
+                <RefreshCw size={14} className="text-gray-400" />
+                {profile.vendorProfileImage ? "Replace" : "Upload"}
+              </button>
+              {profile.vendorProfileImage && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAvatarMenuOpen(false);
+                    update("vendorProfileImage", null);
+                  }}
+                  className="w-full flex items-center gap-2 px-3.5 py-2 text-sm text-red-600 hover:bg-red-50"
+                >
+                  <Trash2 size={14} /> Remove
+                </button>
+              )}
+            </div>
+          )}
         </div>
+        <input
+          ref={avatarInputRef}
+          type="file"
+          accept="image/*"
+          className="hidden"
+          onChange={async (e) => {
+            const file = e.target.files?.[0];
+            e.target.value = "";
+            if (!file) return;
+            try {
+              setUploadingAvatar(true);
+              const result = await vendorApi.uploads.image(file, "vendors");
+              update("vendorProfileImage", result.url);
+            } catch {
+              // ignore upload failure, keep previous image
+            } finally {
+              setUploadingAvatar(false);
+            }
+          }}
+        />
         <div className="min-w-0">
           <p className="font-semibold text-gray-900 truncate">
             {profile.companyName}
           </p>
-          <p className="text-xs text-gray-400 mt-0.5">
-            @{profile.userName ?? "—"}
+          <p className="text-xs text-gray-500 mt-0.5 truncate">
+            {[profile.firstName, profile.lastName].filter(Boolean).join(" ") || "—"}
           </p>
-          <span
-            className={`inline-flex items-center gap-1 mt-1.5 text-xs font-medium px-2 py-0.5 rounded-full
-            ${profile.status === "APPROVED" ? "bg-green-50 text-green-700" : "bg-yellow-50 text-yellow-700"}`}
-          >
-            <BadgeCheck size={11} />
-            {profile.status.replaceAll("_", " ")}
-          </span>
+          <p className="text-xs text-gray-400 truncate">{profile.email}</p>
+          <div className="flex items-center gap-2 mt-1.5">
+            <span
+              className={`inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full
+              ${profile.status === "APPROVED" ? "bg-green-50 text-green-700" : "bg-yellow-50 text-yellow-700"}`}
+            >
+              <BadgeCheck size={11} />
+              {profile.status.replaceAll("_", " ")}
+            </span>
+            {profile.vendorType && (
+              <span className="inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full bg-blue-50 text-blue-700">
+                <Building2 size={11} />
+                {profile.vendorType
+                  .replaceAll("_", " ")
+                  .toLowerCase()
+                  .replace(/^\w/, (c) => c.toUpperCase())}
+              </span>
+            )}
+          </div>
         </div>
         {profile.planDetails && (
           <div className="ml-auto text-right shrink-0">
@@ -571,12 +815,6 @@ export default function ProfilePage() {
             label="Last Name"
             value={profile.lastName ?? ""}
             onChange={(v) => update("lastName", v)}
-            icon={User}
-          />
-          <Field
-            label="Username"
-            value={profile.userName ?? ""}
-            onChange={(v) => update("userName", v)}
             icon={User}
           />
           <Field
@@ -653,28 +891,57 @@ export default function ProfilePage() {
             <label className="text-xs font-medium text-gray-500 mb-1 block">
               Service Cities
             </label>
-            <div className="relative">
-              <Globe
-                size={13}
-                className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
-              />
+            <div className="flex flex-wrap items-center gap-2 w-full px-3 py-2 border border-gray-200 rounded-xl focus-within:ring-2 focus-within:ring-orange-200 focus-within:border-orange-400 bg-white">
+              <Globe size={13} className="text-gray-400 shrink-0" />
+              {profile.cities.map((city) => (
+                <span
+                  key={city}
+                  className="inline-flex items-center gap-1 pl-2.5 pr-1.5 py-1 rounded-full bg-orange-50 text-orange-700 text-xs font-medium"
+                >
+                  {city}
+                  <button
+                    type="button"
+                    onClick={() =>
+                      update(
+                        "cities",
+                        profile.cities.filter((c) => c !== city),
+                      )
+                    }
+                    className="text-orange-400 hover:text-orange-600"
+                  >
+                    <X size={12} />
+                  </button>
+                </span>
+              ))}
               <input
-                value={profile.cities.join(", ")}
-                onChange={(e) =>
-                  update(
-                    "cities",
-                    e.target.value
-                      .split(",")
-                      .map((c) => c.trim())
-                      .filter(Boolean),
-                  )
+                value={cityInput}
+                onChange={(e) => setCityInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === ",") {
+                    e.preventDefault();
+                    const value = cityInput.trim();
+                    if (value && !profile.cities.includes(value)) {
+                      update("cities", [...profile.cities, value]);
+                    }
+                    setCityInput("");
+                  } else if (
+                    e.key === "Backspace" &&
+                    !cityInput &&
+                    profile.cities.length > 0
+                  ) {
+                    update("cities", profile.cities.slice(0, -1));
+                  }
+                }}
+                placeholder={
+                  profile.cities.length === 0
+                    ? "Type a city and press Enter"
+                    : "Add another city"
                 }
-                placeholder="Dubai, Abu Dhabi, Sharjah"
-                className="w-full pl-9 pr-4 py-2.5 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-200 focus:border-orange-400"
+                className="flex-1 min-w-[140px] text-sm outline-none bg-transparent py-1"
               />
             </div>
             <p className="text-xs text-gray-400 mt-1">
-              Comma-separated list of cities
+              Press Enter or comma to add a city
             </p>
           </div>
 
@@ -716,12 +983,39 @@ export default function ProfilePage() {
       {/* ── 3. Legal & Compliance ── */}
       <SectionCard title="Legal & Compliance" icon={FileText}>
         <div className="grid sm:grid-cols-2 gap-4">
-          <Field
-            label="Trade License Number"
-            value={profile.tradeLicenseNumber ?? ""}
-            onChange={(v) => update("tradeLicenseNumber", v)}
-            icon={FileText}
-          />
+          {profile.vendorType !== "FREELANCER" && (
+            <>
+              <Field
+                label="Trade License Number"
+                value={profile.tradeLicenseNumber ?? ""}
+                onChange={(v) => update("tradeLicenseNumber", v)}
+                icon={FileText}
+              />
+              <div>
+                <label className="text-xs font-medium text-gray-500 mb-1 block">
+                  Trade License Expiry
+                </label>
+                <input
+                  type="date"
+                  value={profile.tradeLicenseExpiry?.slice(0, 10) ?? ""}
+                  onChange={(e) => update("tradeLicenseExpiry", e.target.value)}
+                  className="w-full px-4 py-2.5 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-200 focus:border-orange-400"
+                />
+                {isDocExpired(profile.tradeLicenseExpiry) && (
+                  <p className="text-xs text-red-500 mt-1">Trade license has expired</p>
+                )}
+              </div>
+              <FileUploadField
+                label="Trade License File"
+                fileUrl={profile.tradeLicenseFileUrl}
+                folder="vendor-docs"
+                onUploaded={({ url, key }) => {
+                  update("tradeLicenseFileUrl", url);
+                  update("tradeLicenseFileKey", key);
+                }}
+              />
+            </>
+          )}
           <Field
             label="VAT Number"
             value={profile.vatNumber ?? ""}
@@ -734,6 +1028,43 @@ export default function ProfilePage() {
             onChange={(v) => update("visaType", v)}
             icon={Shield}
           />
+          <div>
+            <label className="text-xs font-medium text-gray-500 mb-1 block">
+              Passport Expiry
+            </label>
+            <input
+              type="date"
+              value={profile.passportExpiry?.slice(0, 10) ?? ""}
+              onChange={(e) => update("passportExpiry", e.target.value)}
+              className="w-full px-4 py-2.5 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-200 focus:border-orange-400"
+            />
+            {isDocExpired(profile.passportExpiry) && (
+              <p className="text-xs text-red-500 mt-1">Passport has expired</p>
+            )}
+          </div>
+          <FileUploadField
+            label="Passport File"
+            fileUrl={profile.passportFileUrl}
+            folder="vendor-docs"
+            onUploaded={({ url, key }) => {
+              update("passportFileUrl", url);
+              update("passportFileKey", key);
+            }}
+          />
+          <div>
+            <label className="text-xs font-medium text-gray-500 mb-1 block">
+              Emirates ID Expiry
+            </label>
+            <input
+              type="date"
+              value={profile.emiratesIdExpiry?.slice(0, 10) ?? ""}
+              onChange={(e) => update("emiratesIdExpiry", e.target.value)}
+              className="w-full px-4 py-2.5 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-200 focus:border-orange-400"
+            />
+            {isDocExpired(profile.emiratesIdExpiry) && (
+              <p className="text-xs text-red-500 mt-1">Emirates ID has expired</p>
+            )}
+          </div>
         </div>
       </SectionCard>
 
@@ -760,17 +1091,14 @@ export default function ProfilePage() {
             type="date"
             icon={CalendarClock}
           />
-          <Field
-            label="Agreement File URL"
-            value={profile.agreementFileUrl ?? ""}
-            onChange={(v) => update("agreementFileUrl", v)}
-            icon={FileText}
-          />
-          <Field
-            label="Agreement File Key"
-            value={profile.agreementFileKey ?? ""}
-            onChange={(v) => update("agreementFileKey", v)}
-            icon={FileText}
+          <FileUploadField
+            label="Agreement File"
+            fileUrl={profile.agreementFileUrl}
+            folder="agreements"
+            onUploaded={({ url, key }) => {
+              update("agreementFileUrl", url);
+              update("agreementFileKey", key);
+            }}
           />
         </div>
       </SectionCard>
@@ -833,6 +1161,26 @@ export default function ProfilePage() {
         )}
         {saving ? "Saving..." : "Save Changes"}
       </button>
+
+      {/* ── View Photo Modal ── */}
+      {showPhoto && profile.vendorProfileImage && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setShowPhoto(false)} />
+          <div className="relative bg-white rounded-2xl shadow-xl p-3 max-w-sm w-full">
+            <button
+              onClick={() => setShowPhoto(false)}
+              className="absolute -top-3 -right-3 w-8 h-8 rounded-full bg-white shadow flex items-center justify-center text-gray-500 hover:text-gray-700"
+            >
+              <X size={16} />
+            </button>
+            <img
+              src={profile.vendorProfileImage}
+              alt={profile.companyName}
+              className="w-full h-auto rounded-xl object-cover"
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
