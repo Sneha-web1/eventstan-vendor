@@ -24,7 +24,7 @@ const navItems = [
 
 async function logoutVendor() {
   if (typeof window === 'undefined') return;
-  
+
   const token = localStorage.getItem('vendor_token');
   if (token) {
     try {
@@ -115,6 +115,8 @@ export default function VendorLayout({ children }: { children: React.ReactNode }
     }
   }, [pathname, permissions, profileComplete, router, sessionReady]);
 
+  const avatarUrl = vendor?.vendorProfileImage || vendor?.image || null;
+
   const initials = vendor
     ? vendor.name?.split(' ').map((part) => part.charAt(0)).slice(0, 2).join('').toUpperCase() ||
       vendor.email.charAt(0).toUpperCase()
@@ -126,10 +128,10 @@ export default function VendorLayout({ children }: { children: React.ReactNode }
 
   async function confirmLogout() {
     setLoggingOut(true);
-    try { 
-      await logoutVendor(); 
-    } catch { 
-      // ignore 
+    try {
+      await logoutVendor();
+    } catch {
+      // ignore
     }
     clearSession();
     router.replace('/vendor/login');
@@ -174,8 +176,8 @@ export default function VendorLayout({ children }: { children: React.ReactNode }
         {/* Vendor Info */}
         <div className="px-4 py-4 border-b border-gray-100">
           <div className="flex items-center gap-3">
-            {vendor?.image ? (
-              <img src={vendor.image} alt={fullName} className="w-10 h-10 rounded-full object-cover" />
+            {avatarUrl ? (
+              <img src={avatarUrl} alt={fullName} className="w-10 h-10 rounded-full object-cover" />
             ) : (
               <div className="w-10 h-10 rounded-full bg-gradient-to-br from-orange-400 to-orange-600 flex items-center justify-center text-white font-bold text-sm">
                 {initials || 'V'}
@@ -240,8 +242,8 @@ export default function VendorLayout({ children }: { children: React.ReactNode }
             className="relative group focus:outline-none"
             title="Click to sign out"
           >
-            {vendor?.image ? (
-              <img src={vendor.image} alt={fullName} className="w-9 h-9 rounded-full object-cover ring-2 ring-transparent group-hover:ring-orange-400 transition" />
+            {avatarUrl ? (
+              <img src={avatarUrl} alt={fullName} className="w-9 h-9 rounded-full object-cover ring-2 ring-transparent group-hover:ring-orange-400 transition" />
             ) : (
               <div className="w-9 h-9 rounded-full bg-gradient-to-br from-orange-400 to-orange-600 flex items-center justify-center text-white font-bold text-xs ring-2 ring-transparent group-hover:ring-orange-300 transition">
                 {initials || 'V'}

@@ -379,7 +379,7 @@ export default function PackagesPage() {
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
   const [serviceFilter, setServiceFilter] = useState<string>("all");
   const [allCategories, setAllCategories] = useState<
-    Array<{ id: string; name: string }>
+    Array<{ id: string; name: string; image?: string | null }>
   >([]);
 
   // All categories (not just ones already used by a package), for the filter dropdown.
@@ -452,7 +452,7 @@ export default function PackagesPage() {
   const fetchCategories = async () => {
     try {
       const rows = await vendorApi.masterData.categories<
-        Array<{ id: string; name: string }>
+        Array<{ id: string; name: string; image?: string | null }>
       >();
       setAllCategories(rows);
     } catch (err) {
@@ -518,6 +518,18 @@ export default function PackagesPage() {
     (currentPage - 1) * ITEMS_PER_PAGE,
     currentPage * ITEMS_PER_PAGE,
   );
+
+  const resolvePackageImage = (pkg: ApiPackage): string | null => {
+    if (pkg.imageUrl || pkg.image_url) return pkg.imageUrl || pkg.image_url || null;
+    const catId = packageCategoryId(pkg);
+    const catName = packageCategoryName(pkg);
+    const matched =
+      allCategories.find((c) => c.id === catId) ||
+      allCategories.find(
+        (c) => c.name.toLowerCase() === catName.toLowerCase(),
+      );
+    return matched?.image || null;
+  };
 
   const th = (key: SortKey, label: string) => (
     <th
@@ -782,6 +794,7 @@ export default function PackagesPage() {
                 <tbody className="divide-y divide-gray-50">
                   {paginated.map((pkg) => {
                     const services = packageServices(pkg);
+                    const rowImage = resolvePackageImage(pkg);
                     return (
                       <tr
                         key={pkg.id}
@@ -789,11 +802,19 @@ export default function PackagesPage() {
                       >
                         <td className="px-4 py-3">
                           <div className="flex items-center gap-3">
-                            <div className="w-10 h-10 rounded-lg bg-orange-50 flex items-center justify-center shrink-0">
-                              <PackageIcon
-                                size={16}
-                                className="text-orange-500"
-                              />
+                            <div className="w-10 h-10 rounded-lg bg-orange-50 flex items-center justify-center shrink-0 overflow-hidden">
+                              {rowImage ? (
+                                <img
+                                  src={rowImage}
+                                  alt={pkg.title || pkg.name || "Package"}
+                                  className="w-full h-full object-cover"
+                                />
+                              ) : (
+                                <PackageIcon
+                                  size={16}
+                                  className="text-orange-500"
+                                />
+                              )}
                             </div>
                             <div className="min-w-0">
                               <p className="text-sm font-semibold text-gray-900 truncate max-w-[280px]">

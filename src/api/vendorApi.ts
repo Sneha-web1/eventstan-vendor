@@ -57,6 +57,8 @@ export const vendorApi = {
       request<T>('auth/login', jsonOptions('POST', { email, password })),
     logout: () => request<void>('auth/logout', jsonOptions('POST')),
     me: <T = unknown>() => request<T>('auth/me', { headers: headers() }),
+    changePassword: <T = unknown>(payload: { currentPassword: string; newPassword: string }) =>
+      request<T>('auth/change-password', jsonOptions('POST', payload)),
   },
 
   dashboard: {

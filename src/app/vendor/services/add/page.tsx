@@ -15,7 +15,7 @@ import {
 } from "lucide-react";
 import { vendorApi } from "@/api/vendorApi";
 import { getUser } from "@/lib/auth";
-import { PriceUnitMaster } from "@/lib/priceUnits";
+import { findPriceUnit, PriceUnitMaster } from "@/lib/priceUnits";
 
 const CITIES = [
   { id: "dubai", name: "Dubai" },
@@ -36,6 +36,12 @@ const emptyForm = {
   currency: "AED",
   priceMax: "",
   priceUnit: "per event",
+  minHours: "",
+  maxHours: "",
+  minPersons: "",
+  maxPersons: "",
+  minPieces: "",
+  maxPieces: "",
   tags: [] as string[],
   features: [] as string[],
   imageUrl: "",
@@ -261,6 +267,36 @@ export default function AddServicePage() {
       return "Valid starting price is required.";
     if (form.priceMax && Number(form.priceMax) < Number(form.amount))
       return "Max price cannot be less than starting price.";
+
+    const selectedPriceUnit = findPriceUnit(priceUnits, form.priceUnit);
+
+    if (selectedPriceUnit?.requiresHourRange) {
+      if (!form.minHours || Number(form.minHours) <= 0)
+        return "Minimum hours is required and must be greater than 0.";
+      if (!form.maxHours || Number(form.maxHours) <= 0)
+        return "Maximum hours is required and must be greater than 0.";
+      if (Number(form.minHours) > Number(form.maxHours))
+        return "Minimum hours cannot be greater than maximum hours.";
+    }
+
+    if (selectedPriceUnit?.requiresPersonRange) {
+      if (!form.minPersons || Number(form.minPersons) <= 0)
+        return "Minimum persons is required and must be greater than 0.";
+      if (!form.maxPersons || Number(form.maxPersons) <= 0)
+        return "Maximum persons is required and must be greater than 0.";
+      if (Number(form.minPersons) > Number(form.maxPersons))
+        return "Minimum persons cannot be greater than maximum persons.";
+    }
+
+    if (selectedPriceUnit?.requiresPieceRange) {
+      if (!form.minPieces || Number(form.minPieces) <= 0)
+        return "Minimum pieces is required and must be greater than 0.";
+      if (!form.maxPieces || Number(form.maxPieces) <= 0)
+        return "Maximum pieces is required and must be greater than 0.";
+      if (Number(form.minPieces) > Number(form.maxPieces))
+        return "Minimum pieces cannot be greater than maximum pieces.";
+    }
+
     return "";
   };
 
@@ -281,8 +317,9 @@ export default function AddServicePage() {
       setError("");
 
       const galleryUrls = await uploadGalleryImages();
+      const selectedPriceUnit = findPriceUnit(priceUnits, form.priceUnit);
 
-      await vendorApi.services.create({
+      const servicePayload: Record<string, unknown> = {
         vendorId,
         categoryId: form.categoryId,
         title: form.title.trim(),
@@ -297,7 +334,20 @@ export default function AddServicePage() {
         tags: form.tags.length > 0 ? form.tags : undefined,
         gallery: galleryUrls.length > 0 ? galleryUrls : undefined,
         features: form.features.length > 0 ? form.features : undefined,
-      });
+      };
+
+      if (selectedPriceUnit?.requiresHourRange) {
+        servicePayload.minHours = Number(form.minHours);
+        servicePayload.maxHours = Number(form.maxHours);
+      } else if (selectedPriceUnit?.requiresPersonRange) {
+        servicePayload.minPersons = Number(form.minPersons);
+        servicePayload.maxPersons = Number(form.maxPersons);
+      } else if (selectedPriceUnit?.requiresPieceRange) {
+        servicePayload.minPieces = Number(form.minPieces);
+        servicePayload.maxPieces = Number(form.maxPieces);
+      }
+
+      await vendorApi.services.create(servicePayload);
 
       router.push("/vendor/services");
     } catch (err) {
@@ -307,6 +357,11 @@ export default function AddServicePage() {
       setSaving(false);
     }
   };
+
+  const selectedPriceUnit = findPriceUnit(priceUnits, form.priceUnit);
+  const showHourFields = Boolean(selectedPriceUnit?.requiresHourRange);
+  const showPersonFields = Boolean(selectedPriceUnit?.requiresPersonRange);
+  const showPieceFields = Boolean(selectedPriceUnit?.requiresPieceRange);
 
   return (
     <div className="max-w-5xl mx-auto space-y-4 pb-3">
@@ -454,6 +509,101 @@ export default function AddServicePage() {
                     </select>
                   </div>
                 </div>
+
+                {showHourFields && (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="text-xs font-semibold text-gray-700 mb-1.5 block">
+                        Min Hours *
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.5"
+                        value={form.minHours}
+                        onChange={(e) => setFormField("minHours", e.target.value)}
+                        className="w-full px-4 py-2.5 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-200 focus:border-orange-400"
+                        placeholder="2"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs font-semibold text-gray-700 mb-1.5 block">
+                        Max Hours *
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.5"
+                        value={form.maxHours}
+                        onChange={(e) => setFormField("maxHours", e.target.value)}
+                        className="w-full px-4 py-2.5 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-200 focus:border-orange-400"
+                        placeholder="8"
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {showPersonFields && (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="text-xs font-semibold text-gray-700 mb-1.5 block">
+                        Min Persons *
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        value={form.minPersons}
+                        onChange={(e) => setFormField("minPersons", e.target.value)}
+                        className="w-full px-4 py-2.5 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-200 focus:border-orange-400"
+                        placeholder="10"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs font-semibold text-gray-700 mb-1.5 block">
+                        Max Persons *
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        value={form.maxPersons}
+                        onChange={(e) => setFormField("maxPersons", e.target.value)}
+                        className="w-full px-4 py-2.5 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-200 focus:border-orange-400"
+                        placeholder="50"
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {showPieceFields && (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="text-xs font-semibold text-gray-700 mb-1.5 block">
+                        Min Pieces *
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        value={form.minPieces}
+                        onChange={(e) => setFormField("minPieces", e.target.value)}
+                        className="w-full px-4 py-2.5 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-200 focus:border-orange-400"
+                        placeholder="1"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs font-semibold text-gray-700 mb-1.5 block">
+                        Max Pieces *
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        value={form.maxPieces}
+                        onChange={(e) => setFormField("maxPieces", e.target.value)}
+                        className="w-full px-4 py-2.5 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-200 focus:border-orange-400"
+                        placeholder="10"
+                      />
+                    </div>
+                  </div>
+                )}
 
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <div>

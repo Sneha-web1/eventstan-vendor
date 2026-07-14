@@ -21,9 +21,9 @@ import {
   Lock,
   ChevronDown,
   CheckCircle2,
-  Upload,
-  ExternalLink,
-  X,
+  Eye,
+  EyeOff,
+  AlertTriangle,
 } from "lucide-react";
 import { vendorApi } from "@/api/vendorApi";
 import { updateSessionUser } from "@/lib/auth";
@@ -35,7 +35,6 @@ interface VendorProfile {
   contactPerson: string;
   email: string;
   phone: string;
-  profileImageUrl?: string | null;
   about?: string | null;
   businessLocation?: string | null;
   address?: string | null;
@@ -52,13 +51,6 @@ interface VendorProfile {
   telephone?: string | null;
   // Legal / Business
   tradeLicenseNumber?: string | null;
-  tradeLicenseExpiry?: string | null;
-  tradeLicenseFileUrl?: string | null;
-  tradeLicenseFileKey?: string | null;
-  passportExpiry?: string | null;
-  passportFileUrl?: string | null;
-  passportFileKey?: string | null;
-  emiratesIdExpiry?: string | null;
   vatNumber?: string | null;
   visaType?: string | null;
   // Plan
@@ -89,21 +81,6 @@ function formatDate(iso?: string | null) {
 function isPlanExpired(iso?: string | null) {
   if (!iso) return false;
   return new Date(iso) < new Date();
-}
-
-function isDocExpired(iso?: string | null) {
-  if (!iso) return false;
-  return new Date(iso) < new Date();
-}
-
-function slugifyUsername(first?: string | null, last?: string | null) {
-  return [first, last]
-    .filter(Boolean)
-    .join(" ")
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
 }
 
 function hasValue(value: string | number | string[] | null | undefined) {
@@ -202,82 +179,143 @@ function Field({
   );
 }
 
-function FileUploadField({
+function PasswordField({
   label,
-  fileUrl,
-  onUploaded,
-  folder,
+  value,
+  onChange,
+  placeholder = "",
 }: {
   label: string;
-  fileUrl?: string | null;
-  onUploaded: (result: { url: string; key: string }) => void;
-  folder: string;
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
 }) {
-  const [uploading, setUploading] = useState(false);
-  const inputId = `upload-${folder}-${label.replace(/\s+/g, "-").toLowerCase()}`;
-
-  const handleFile = async (file: File) => {
-    try {
-      setUploading(true);
-      const result = await vendorApi.uploads.image(file, folder);
-      onUploaded({ url: result.url, key: result.key });
-    } catch {
-      // upload failed silently; parent can show a toast if desired
-    } finally {
-      setUploading(false);
-    }
-  };
-
+  const [visible, setVisible] = useState(false);
   return (
     <div>
       <label className="text-xs font-medium text-gray-500 mb-1 block">
         {label}
       </label>
-      <div className="flex items-center gap-2">
-        <label
-          htmlFor={inputId}
-          className="flex-1 flex items-center gap-2 px-4 py-2.5 text-sm border border-dashed border-gray-300 rounded-xl cursor-pointer hover:border-orange-400 hover:bg-orange-50/40 transition text-gray-500"
-        >
-          {uploading ? (
-            <Loader2 size={14} className="animate-spin text-orange-500" />
-          ) : (
-            <Upload size={14} className="text-gray-400" />
-          )}
-          <span className="truncate">
-            {uploading
-              ? "Uploading..."
-              : fileUrl
-                ? "Replace file"
-                : "Upload file (PDF, JPG, PNG)"}
-          </span>
-        </label>
-        <input
-          id={inputId}
-          type="file"
-          accept=".pdf,image/*"
-          className="hidden"
-          onChange={(e) => {
-            const file = e.target.files?.[0];
-            if (file) void handleFile(file);
-            e.target.value = "";
-          }}
+      <div className="relative">
+        <Lock
+          size={13}
+          className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
         />
-        {fileUrl && (
-          <a
-            href={fileUrl}
-            target="_blank"
-            rel="noreferrer"
-            className="p-2.5 rounded-xl border border-gray-200 text-gray-400 hover:text-orange-500 hover:border-orange-300 transition shrink-0"
-            title="View uploaded file"
-          >
-            <ExternalLink size={14} />
-          </a>
-        )}
+        <input
+          type={visible ? "text" : "password"}
+          value={value}
+          placeholder={placeholder}
+          onChange={(e) => onChange(e.target.value)}
+          autoComplete="new-password"
+          className="w-full py-2.5 pl-9 pr-10 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-200 focus:border-orange-400 bg-white text-gray-800"
+        />
+        <button
+          type="button"
+          onClick={() => setVisible((v) => !v)}
+          className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+          tabIndex={-1}
+        >
+          {visible ? <EyeOff size={14} /> : <Eye size={14} />}
+        </button>
       </div>
-      <p className="text-xs text-gray-400 mt-1">
-        {fileUrl ? "File uploaded. The link updates once you replace it." : "No file uploaded yet."}
-      </p>
     </div>
+  );
+}
+
+function ChangePasswordCard() {
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+
+  const handleChangePassword = async () => {
+    setError("");
+    setSuccess("");
+
+    if (!currentPassword || !newPassword || !confirmPassword) {
+      setError("Please fill in all password fields.");
+      return;
+    }
+    if (newPassword.length < 8) {
+      setError("New password must be at least 8 characters.");
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setError("New password and confirmation do not match.");
+      return;
+    }
+    if (newPassword === currentPassword) {
+      setError("New password must be different from your current password.");
+      return;
+    }
+
+    setSaving(true);
+    try {
+      await vendorApi.auth.changePassword({ currentPassword, newPassword });
+      setSuccess("Password changed successfully.");
+      setCurrentPassword("");
+      setNewPassword("");
+      setConfirmPassword("");
+    } catch (cause) {
+      setError(
+        cause instanceof Error ? cause.message : "Unable to change password",
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <SectionCard title="Change Password" icon={Lock}>
+      <div className="space-y-4">
+        {success && (
+          <div className="flex items-center gap-2 bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-xl text-sm">
+            <CheckCircle2 size={15} /> {success}
+          </div>
+        )}
+        {error && (
+          <div className="flex items-center gap-2 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-sm">
+            <AlertTriangle size={15} /> {error}
+          </div>
+        )}
+        <div className="grid sm:grid-cols-2 gap-4">
+          <PasswordField
+            label="Current Password"
+            value={currentPassword}
+            onChange={setCurrentPassword}
+          />
+          <div />
+          <PasswordField
+            label="New Password"
+            value={newPassword}
+            onChange={setNewPassword}
+          />
+          <PasswordField
+            label="Confirm New Password"
+            value={confirmPassword}
+            onChange={setConfirmPassword}
+          />
+        </div>
+        <p className="text-xs text-gray-400">
+          Use at least 8 characters. You'll stay signed in on this device.
+        </p>
+        <button
+          type="button"
+          onClick={handleChangePassword}
+          disabled={saving}
+          className="flex items-center justify-center gap-2 bg-gray-900 hover:bg-gray-800 disabled:opacity-60 text-white px-5 py-2.5 rounded-xl text-sm font-semibold transition-colors"
+        >
+          {saving ? (
+            <Loader2 size={15} className="animate-spin" />
+          ) : (
+            <Lock size={15} />
+          )}
+          {saving ? "Changing..." : "Change Password"}
+        </button>
+      </div>
+    </SectionCard>
   );
 }
 
@@ -289,8 +327,6 @@ export default function ProfilePage() {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
-  const [uploadingAvatar, setUploadingAvatar] = useState(false);
-  const [cityInput, setCityInput] = useState("");
 
   useEffect(() => {
     vendorApi.profile
@@ -303,15 +339,6 @@ export default function ProfilePage() {
       )
       .finally(() => setLoading(false));
   }, []);
-
-  useEffect(() => {
-    if (!profile) return;
-    const generated = slugifyUsername(profile.firstName, profile.lastName);
-    if (generated && generated !== profile.userName) {
-      setProfile((cur) => (cur ? { ...cur, userName: generated } : cur));
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [profile?.firstName, profile?.lastName]);
 
   const update = <K extends keyof VendorProfile>(
     key: K,
@@ -329,7 +356,6 @@ export default function ProfilePage() {
         contactPerson: profile.contactPerson,
         email: profile.email,
         phone: profile.phone,
-        profileImageUrl: profile.profileImageUrl ?? "",
         firstName: profile.firstName ?? "",
         lastName: profile.lastName ?? "",
         userName: profile.userName ?? "",
@@ -343,13 +369,6 @@ export default function ProfilePage() {
         cities: profile.cities,
         capacityPerDay: profile.capacityPerDay,
         tradeLicenseNumber: profile.tradeLicenseNumber ?? "",
-        tradeLicenseExpiry: profile.tradeLicenseExpiry ?? "",
-        tradeLicenseFileUrl: profile.tradeLicenseFileUrl ?? "",
-        tradeLicenseFileKey: profile.tradeLicenseFileKey ?? "",
-        passportExpiry: profile.passportExpiry ?? "",
-        passportFileUrl: profile.passportFileUrl ?? "",
-        passportFileKey: profile.passportFileKey ?? "",
-        emiratesIdExpiry: profile.emiratesIdExpiry ?? "",
         vatNumber: profile.vatNumber ?? "",
         visaType: profile.visaType ?? "",
         planDetails: profile.planDetails ?? "",
@@ -412,11 +431,8 @@ export default function ProfilePage() {
     { label: "Specialization", done: hasValue(profile.specialization) },
     { label: "Service cities", done: hasValue(profile.cities) },
     { label: "Trade license", done: hasValue(profile.tradeLicenseNumber) },
-    { label: "Trade license expiry", done: hasValue(profile.tradeLicenseExpiry) },
     { label: "VAT number", done: hasValue(profile.vatNumber) },
     { label: "Primary mobile", done: hasValue(profile.primaryMobile) },
-    { label: "Passport expiry", done: hasValue(profile.passportExpiry) },
-    { label: "Emirates ID expiry", done: hasValue(profile.emiratesIdExpiry) },
     { label: "Bank name", done: hasValue(profile.bankName) },
     { label: "Account name", done: hasValue(profile.accountFullName) },
     { label: "IBAN", done: hasValue(profile.ibanNo) },
@@ -504,70 +520,28 @@ export default function ProfilePage() {
 
       {/* ── Avatar card ── */}
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 flex items-center gap-4">
-        <label
-          htmlFor="avatar-upload"
-          className="relative w-14 h-14 rounded-2xl bg-gradient-to-br from-orange-400 to-orange-600 flex items-center justify-center text-white font-bold text-lg shrink-0 cursor-pointer overflow-hidden group"
-          title="Click to change profile photo"
-        >
-          {profile.profileImageUrl ? (
-            <img
-              src={profile.profileImageUrl}
-              alt={profile.companyName}
-              className="w-full h-full object-cover"
-            />
-          ) : (
-            profile.companyName
-              .split(" ")
-              .map((p) => p[0])
-              .slice(0, 2)
-              .join("")
-              .toUpperCase()
-          )}
-          <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-            {uploadingAvatar ? (
-              <Loader2 size={16} className="animate-spin text-white" />
-            ) : (
-              <Upload size={16} className="text-white" />
-            )}
-          </div>
-        </label>
-        <input
-          id="avatar-upload"
-          type="file"
-          accept="image/*"
-          className="hidden"
-          onChange={async (e) => {
-            const file = e.target.files?.[0];
-            e.target.value = "";
-            if (!file) return;
-            try {
-              setUploadingAvatar(true);
-              const result = await vendorApi.uploads.image(file, "vendors");
-              update("profileImageUrl", result.url);
-            } catch {
-              // ignore upload failure, keep previous image
-            } finally {
-              setUploadingAvatar(false);
-            }
-          }}
-        />
+        <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-orange-400 to-orange-600 flex items-center justify-center text-white font-bold text-lg shrink-0">
+          {profile.companyName
+            .split(" ")
+            .map((p) => p[0])
+            .slice(0, 2)
+            .join("")
+            .toUpperCase()}
+        </div>
         <div className="min-w-0">
           <p className="font-semibold text-gray-900 truncate">
             {profile.companyName}
           </p>
-          <p className="text-xs text-gray-500 mt-0.5 truncate">
-            {[profile.firstName, profile.lastName].filter(Boolean).join(" ") || "—"}
+          <p className="text-xs text-gray-400 mt-0.5">
+            @{profile.userName ?? "—"}
           </p>
-          <p className="text-xs text-gray-400 truncate">{profile.email}</p>
-          <div className="flex items-center gap-2 mt-1.5">
-            <span
-              className={`inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full
-              ${profile.status === "APPROVED" ? "bg-green-50 text-green-700" : "bg-yellow-50 text-yellow-700"}`}
-            >
-              <BadgeCheck size={11} />
-              {profile.status.replaceAll("_", " ")}
-            </span>
-          </div>
+          <span
+            className={`inline-flex items-center gap-1 mt-1.5 text-xs font-medium px-2 py-0.5 rounded-full
+            ${profile.status === "APPROVED" ? "bg-green-50 text-green-700" : "bg-yellow-50 text-yellow-700"}`}
+          >
+            <BadgeCheck size={11} />
+            {profile.status.replaceAll("_", " ")}
+          </span>
         </div>
         {profile.planDetails && (
           <div className="ml-auto text-right shrink-0">
@@ -597,6 +571,12 @@ export default function ProfilePage() {
             label="Last Name"
             value={profile.lastName ?? ""}
             onChange={(v) => update("lastName", v)}
+            icon={User}
+          />
+          <Field
+            label="Username"
+            value={profile.userName ?? ""}
+            onChange={(v) => update("userName", v)}
             icon={User}
           />
           <Field
@@ -673,57 +653,28 @@ export default function ProfilePage() {
             <label className="text-xs font-medium text-gray-500 mb-1 block">
               Service Cities
             </label>
-            <div className="flex flex-wrap items-center gap-2 w-full px-3 py-2 border border-gray-200 rounded-xl focus-within:ring-2 focus-within:ring-orange-200 focus-within:border-orange-400 bg-white">
-              <Globe size={13} className="text-gray-400 shrink-0" />
-              {profile.cities.map((city) => (
-                <span
-                  key={city}
-                  className="inline-flex items-center gap-1 pl-2.5 pr-1.5 py-1 rounded-full bg-orange-50 text-orange-700 text-xs font-medium"
-                >
-                  {city}
-                  <button
-                    type="button"
-                    onClick={() =>
-                      update(
-                        "cities",
-                        profile.cities.filter((c) => c !== city),
-                      )
-                    }
-                    className="text-orange-400 hover:text-orange-600"
-                  >
-                    <X size={12} />
-                  </button>
-                </span>
-              ))}
+            <div className="relative">
+              <Globe
+                size={13}
+                className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
+              />
               <input
-                value={cityInput}
-                onChange={(e) => setCityInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" || e.key === ",") {
-                    e.preventDefault();
-                    const value = cityInput.trim();
-                    if (value && !profile.cities.includes(value)) {
-                      update("cities", [...profile.cities, value]);
-                    }
-                    setCityInput("");
-                  } else if (
-                    e.key === "Backspace" &&
-                    !cityInput &&
-                    profile.cities.length > 0
-                  ) {
-                    update("cities", profile.cities.slice(0, -1));
-                  }
-                }}
-                placeholder={
-                  profile.cities.length === 0
-                    ? "Type a city and press Enter"
-                    : "Add another city"
+                value={profile.cities.join(", ")}
+                onChange={(e) =>
+                  update(
+                    "cities",
+                    e.target.value
+                      .split(",")
+                      .map((c) => c.trim())
+                      .filter(Boolean),
+                  )
                 }
-                className="flex-1 min-w-[140px] text-sm outline-none bg-transparent py-1"
+                placeholder="Dubai, Abu Dhabi, Sharjah"
+                className="w-full pl-9 pr-4 py-2.5 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-200 focus:border-orange-400"
               />
             </div>
             <p className="text-xs text-gray-400 mt-1">
-              Press Enter or comma to add a city
+              Comma-separated list of cities
             </p>
           </div>
 
@@ -771,29 +722,6 @@ export default function ProfilePage() {
             onChange={(v) => update("tradeLicenseNumber", v)}
             icon={FileText}
           />
-          <div>
-            <label className="text-xs font-medium text-gray-500 mb-1 block">
-              Trade License Expiry
-            </label>
-            <input
-              type="date"
-              value={profile.tradeLicenseExpiry?.slice(0, 10) ?? ""}
-              onChange={(e) => update("tradeLicenseExpiry", e.target.value)}
-              className="w-full px-4 py-2.5 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-200 focus:border-orange-400"
-            />
-            {isDocExpired(profile.tradeLicenseExpiry) && (
-              <p className="text-xs text-red-500 mt-1">Trade license has expired</p>
-            )}
-          </div>
-          <FileUploadField
-            label="Trade License File"
-            fileUrl={profile.tradeLicenseFileUrl}
-            folder="vendor-docs"
-            onUploaded={({ url, key }) => {
-              update("tradeLicenseFileUrl", url);
-              update("tradeLicenseFileKey", key);
-            }}
-          />
           <Field
             label="VAT Number"
             value={profile.vatNumber ?? ""}
@@ -806,43 +734,6 @@ export default function ProfilePage() {
             onChange={(v) => update("visaType", v)}
             icon={Shield}
           />
-          <div>
-            <label className="text-xs font-medium text-gray-500 mb-1 block">
-              Passport Expiry
-            </label>
-            <input
-              type="date"
-              value={profile.passportExpiry?.slice(0, 10) ?? ""}
-              onChange={(e) => update("passportExpiry", e.target.value)}
-              className="w-full px-4 py-2.5 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-200 focus:border-orange-400"
-            />
-            {isDocExpired(profile.passportExpiry) && (
-              <p className="text-xs text-red-500 mt-1">Passport has expired</p>
-            )}
-          </div>
-          <FileUploadField
-            label="Passport File"
-            fileUrl={profile.passportFileUrl}
-            folder="vendor-docs"
-            onUploaded={({ url, key }) => {
-              update("passportFileUrl", url);
-              update("passportFileKey", key);
-            }}
-          />
-          <div>
-            <label className="text-xs font-medium text-gray-500 mb-1 block">
-              Emirates ID Expiry
-            </label>
-            <input
-              type="date"
-              value={profile.emiratesIdExpiry?.slice(0, 10) ?? ""}
-              onChange={(e) => update("emiratesIdExpiry", e.target.value)}
-              className="w-full px-4 py-2.5 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-200 focus:border-orange-400"
-            />
-            {isDocExpired(profile.emiratesIdExpiry) && (
-              <p className="text-xs text-red-500 mt-1">Emirates ID has expired</p>
-            )}
-          </div>
         </div>
       </SectionCard>
 
@@ -869,14 +760,17 @@ export default function ProfilePage() {
             type="date"
             icon={CalendarClock}
           />
-          <FileUploadField
-            label="Agreement File"
-            fileUrl={profile.agreementFileUrl}
-            folder="agreements"
-            onUploaded={({ url, key }) => {
-              update("agreementFileUrl", url);
-              update("agreementFileKey", key);
-            }}
+          <Field
+            label="Agreement File URL"
+            value={profile.agreementFileUrl ?? ""}
+            onChange={(v) => update("agreementFileUrl", v)}
+            icon={FileText}
+          />
+          <Field
+            label="Agreement File Key"
+            value={profile.agreementFileKey ?? ""}
+            onChange={(v) => update("agreementFileKey", v)}
+            icon={FileText}
           />
         </div>
       </SectionCard>
@@ -922,6 +816,9 @@ export default function ProfilePage() {
           />
         </div>
       </SectionCard>
+
+      {/* ── 6. Change Password ── */}
+      <ChangePasswordCard />
 
       {/* ── Save button ── */}
       <button

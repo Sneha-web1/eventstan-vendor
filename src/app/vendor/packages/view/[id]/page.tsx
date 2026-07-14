@@ -115,7 +115,7 @@ interface ApiPackage {
   promotionalPrice?: number;
   service_id?: string;
   categoryId?: string;
-  category?: { id: string; name: string } | null;
+  category?: { id: string; name: string; image?: string | null } | null;
   minHours?: number;
   maxHours?: number;
   minPersons?: number;
@@ -154,6 +154,9 @@ export default function PackageViewPage() {
   const params = useParams();
   const router = useRouter();
   const [pkg, setPkg] = useState<ApiPackage | null>(null);
+  const [categories, setCategories] = useState<
+    Array<{ id: string; name: string; image?: string | null }>
+  >([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState("");
@@ -180,10 +183,16 @@ export default function PackageViewPage() {
       setLoading(true);
       setError(null);
       
-      const data = await vendorApi.packages.get<ApiPackage>(packageId);
-      
+      const [data, categoryRows] = await Promise.all([
+        vendorApi.packages.get<ApiPackage>(packageId),
+        vendorApi.masterData
+          .categories<Array<{ id: string; name: string; image?: string | null }>>()
+          .catch(() => []),
+      ]);
+
       if (!abortController.signal.aborted) {
         setPkg(data);
+        setCategories(categoryRows);
         hasFetched.current = true;
       }
     } catch (err) {
@@ -294,7 +303,7 @@ export default function PackageViewPage() {
   const createdAt = pkg.createdAt || pkg.created_at;
   
   const packageImage = pkg.imageUrl || pkg.image_url || null;
-  const defaultImage = `https://eventstancom.vercel.app/images/featured-services/featured-services-1.jpg`;
+  const globalDefaultImage = `https://eventstancom.vercel.app/images/featured-services/featured-services-1.jpg`;
 
   const isRental = pkg.isRental ?? pkg.is_rental ?? false;
   const rentalLocation = pkg.rentalLocation || pkg.rental_location || "";
@@ -353,6 +362,14 @@ export default function PackageViewPage() {
   const promotionEnd = pkg.promotionEndDate || pkg.promotion_end_date;
   const services = pkg.items || [];
   const resolvedCategoryName = categoryName || services[0]?.service?.category?.name || "";
+  const resolvedCategoryId = pkg.category?.id || pkg.categoryId || "";
+  const matchedCategory =
+    categories.find((cat) => cat.id === resolvedCategoryId) ||
+    categories.find(
+      (cat) => cat.name.toLowerCase() === resolvedCategoryName.toLowerCase(),
+    );
+  const categoryImage = matchedCategory?.image || null;
+  const defaultImage = categoryImage || globalDefaultImage;
 
   // Show only 4 items initially, then "View More"
   const displayInclusions = showAllInclusions ? includedItems : includedItems.slice(0, 4);
@@ -420,7 +437,10 @@ export default function PackageViewPage() {
             alt={packageName}
             className="w-full h-full object-cover"
             onError={(e) => {
-              (e.target as HTMLImageElement).src = defaultImage;
+              const img = e.target as HTMLImageElement;
+              if (img.src !== globalDefaultImage) {
+                img.src = globalDefaultImage;
+              }
             }}
           />
           <div className="absolute top-4 left-4 flex items-center gap-2 flex-wrap">

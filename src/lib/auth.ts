@@ -9,6 +9,7 @@ export interface VendorUser {
   companyName?: string | null;
   updatedProfile?: boolean | null;
   image?: string | null;
+  vendorProfileImage?: string | null;
   permissions?: RolePermission[];
 }
 
