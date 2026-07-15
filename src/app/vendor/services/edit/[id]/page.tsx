@@ -52,10 +52,6 @@ const emptyForm = {
   currency: "AED",
   priceMax: "",
   priceUnit: "per event",
-  minHours: "",
-  maxHours: "",
-  minPersons: "",
-  maxPersons: "",
   minPieces: "",
   maxPieces: "",
   status: "ACTIVE",
@@ -121,16 +117,12 @@ export default function EditServicePage() {
           description: data.description || "",
           city: data.city || "",
           amount: String(data.price?.amount ?? ""),
-          currency: data.price?.currency || "AED",
+          currency: "AED",
           priceMax: String(data.price_max ?? ""),
           priceUnit:
             findPriceUnit(activePriceUnits, data.price_unit)?.code ||
             activePriceUnits[0]?.code ||
             "per event",
-          minHours: String(data.minHours ?? ""),
-          maxHours: String(data.maxHours ?? ""),
-          minPersons: String(data.minPersons ?? ""),
-          maxPersons: String(data.maxPersons ?? ""),
           minPieces: String(data.minPieces ?? ""),
           maxPieces: String(data.maxPieces ?? ""),
           status: data.status || "ACTIVE",
@@ -300,24 +292,6 @@ export default function EditServicePage() {
 
     const selectedPriceUnit = findPriceUnit(priceUnits, form.priceUnit);
 
-    if (selectedPriceUnit?.requiresHourRange) {
-      if (!form.minHours || Number(form.minHours) <= 0)
-        return "Minimum hours is required and must be greater than 0.";
-      if (!form.maxHours || Number(form.maxHours) <= 0)
-        return "Maximum hours is required and must be greater than 0.";
-      if (Number(form.minHours) > Number(form.maxHours))
-        return "Minimum hours cannot be greater than maximum hours.";
-    }
-
-    if (selectedPriceUnit?.requiresPersonRange) {
-      if (!form.minPersons || Number(form.minPersons) <= 0)
-        return "Minimum persons is required and must be greater than 0.";
-      if (!form.maxPersons || Number(form.maxPersons) <= 0)
-        return "Maximum persons is required and must be greater than 0.";
-      if (Number(form.minPersons) > Number(form.maxPersons))
-        return "Minimum persons cannot be greater than maximum persons.";
-    }
-
     if (selectedPriceUnit?.requiresPieceRange) {
       if (!form.minPieces || Number(form.minPieces) <= 0)
         return "Minimum pieces is required and must be greater than 0.";
@@ -366,13 +340,7 @@ export default function EditServicePage() {
         features: form.features,
       };
 
-      if (selectedPriceUnit?.requiresHourRange) {
-        servicePayload.minHours = Number(form.minHours);
-        servicePayload.maxHours = Number(form.maxHours);
-      } else if (selectedPriceUnit?.requiresPersonRange) {
-        servicePayload.minPersons = Number(form.minPersons);
-        servicePayload.maxPersons = Number(form.maxPersons);
-      } else if (selectedPriceUnit?.requiresPieceRange) {
+      if (selectedPriceUnit?.requiresPieceRange) {
         servicePayload.minPieces = Number(form.minPieces);
         servicePayload.maxPieces = Number(form.maxPieces);
       }
@@ -414,8 +382,6 @@ export default function EditServicePage() {
   }
 
   const selectedPriceUnit = findPriceUnit(priceUnits, form.priceUnit);
-  const showHourFields = Boolean(selectedPriceUnit?.requiresHourRange);
-  const showPersonFields = Boolean(selectedPriceUnit?.requiresPersonRange);
   const showPieceFields = Boolean(selectedPriceUnit?.requiresPieceRange);
 
   return (
@@ -484,11 +450,8 @@ export default function EditServicePage() {
                   </label>
                   <input
                     value={form.slug}
-                    onChange={(e) => {
-                      setSlugEdited(true);
-                      setFormField("slug", slugify(e.target.value));
-                    }}
-                    className="w-full px-4 py-2.5 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-200 focus:border-orange-400"
+                    readOnly
+                    className="w-full px-4 py-2.5 text-sm border border-gray-100 bg-gray-50 text-gray-400 rounded-xl focus:outline-none cursor-not-allowed"
                   />
                   <p
                     className={`mt-1 text-xs ${slugStatus === "taken" ? "text-red-500" : slugStatus === "available" ? "text-emerald-600" : "text-gray-400"}`}
@@ -500,20 +463,6 @@ export default function EditServicePage() {
                     {slugStatus === "idle" &&
                       "This slug will be used in the customer service URL."}
                   </p>
-                </div>
-
-                <div>
-                  <label className="text-xs font-semibold text-gray-700 mb-1.5 block">
-                    Description *
-                  </label>
-                  <textarea
-                    value={form.description}
-                    onChange={(e) =>
-                      setFormField("description", e.target.value)
-                    }
-                    rows={4}
-                    className="w-full px-4 py-3 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-200 focus:border-orange-400 resize-none"
-                  />
                 </div>
               </div>
             </div>
@@ -551,70 +500,6 @@ export default function EditServicePage() {
                     </select>
                   </div>
                 </div>
-
-                {showHourFields && (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                      <label className="text-xs font-semibold text-gray-700 mb-1.5 block">
-                        Min Hours *
-                      </label>
-                      <input
-                        type="number"
-                        min="0"
-                        step="0.5"
-                        value={form.minHours}
-                        onChange={(e) => setFormField("minHours", e.target.value)}
-                        className="w-full px-4 py-2.5 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-200 focus:border-orange-400"
-                        placeholder="2"
-                      />
-                    </div>
-                    <div>
-                      <label className="text-xs font-semibold text-gray-700 mb-1.5 block">
-                        Max Hours *
-                      </label>
-                      <input
-                        type="number"
-                        min="0"
-                        step="0.5"
-                        value={form.maxHours}
-                        onChange={(e) => setFormField("maxHours", e.target.value)}
-                        className="w-full px-4 py-2.5 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-200 focus:border-orange-400"
-                        placeholder="8"
-                      />
-                    </div>
-                  </div>
-                )}
-
-                {showPersonFields && (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                      <label className="text-xs font-semibold text-gray-700 mb-1.5 block">
-                        Min Persons *
-                      </label>
-                      <input
-                        type="number"
-                        min="0"
-                        value={form.minPersons}
-                        onChange={(e) => setFormField("minPersons", e.target.value)}
-                        className="w-full px-4 py-2.5 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-200 focus:border-orange-400"
-                        placeholder="10"
-                      />
-                    </div>
-                    <div>
-                      <label className="text-xs font-semibold text-gray-700 mb-1.5 block">
-                        Max Persons *
-                      </label>
-                      <input
-                        type="number"
-                        min="0"
-                        value={form.maxPersons}
-                        onChange={(e) => setFormField("maxPersons", e.target.value)}
-                        className="w-full px-4 py-2.5 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-200 focus:border-orange-400"
-                        placeholder="50"
-                      />
-                    </div>
-                  </div>
-                )}
 
                 {showPieceFields && (
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -674,18 +559,16 @@ export default function EditServicePage() {
                     />
                   </div>
 
-                  <div>
+                  {/* <div>
                     <label className="text-xs font-semibold text-gray-700 mb-1.5 block">
                       Currency *
                     </label>
                     <input
                       value={form.currency}
-                      onChange={(e) =>
-                        setFormField("currency", e.target.value.toUpperCase())
-                      }
-                      className="w-full px-4 py-2.5 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-200 focus:border-orange-400"
+                      readOnly
+                      className="w-full px-4 py-2.5 text-sm border border-gray-100 bg-gray-50 text-gray-400 rounded-xl focus:outline-none cursor-not-allowed"
                     />
-                  </div>
+                  </div> */}
 
                   <div>
                     <label className="text-xs font-semibold text-gray-700 mb-1.5 block">
@@ -703,6 +586,25 @@ export default function EditServicePage() {
                 </div>
               </div>
             </div>
+          </div>
+
+          <div>
+            <label className="text-xs font-semibold text-gray-700 mb-1.5 block">
+              Description *
+            </label>
+            <textarea
+              value={form.description}
+              onChange={(e) =>
+                setFormField("description", e.target.value.slice(0, 500))
+              }
+              rows={4}
+              maxLength={500}
+              className="w-full px-4 py-3 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-200 focus:border-orange-400 resize-none"
+            />
+            <p className="mt-1 text-xs text-gray-400 text-right">
+              {form.description.length} / 500 used &middot;{" "}
+              {500 - form.description.length} remaining
+            </p>
           </div>
         </div>
 
