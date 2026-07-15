@@ -137,8 +137,10 @@ function packageAmount(pkg: ApiPackage) {
   return pkg.money?.amount ?? pkg.amount ?? pkg.price ?? 0;
 }
 
-function packageCurrency(pkg: ApiPackage) {
-  return pkg.money?.currency ?? pkg.currency ?? "AED";
+// Currency is always shown as AED regardless of what's stored on the
+// package record (some older records may have USD or other values saved).
+function packageCurrency(_pkg: ApiPackage) {
+  return "AED";
 }
 
 function packageOriginalPrice(pkg: ApiPackage) {
@@ -284,7 +286,8 @@ function PackageDetailModal({
                   packageOriginalPrice(pkg) != null &&
                   packageOriginalPrice(pkg) !== packageAmount(pkg) && (
                     <span className="text-sm font-medium text-gray-400 line-through">
-                      {packageOriginalPrice(pkg)!.toLocaleString()}
+                      {packageOriginalPrice(pkg)!.toLocaleString()}{" "}
+                      {packageCurrency(pkg)}
                     </span>
                   )}
               </p>
@@ -374,7 +377,7 @@ export default function PackagesPage() {
   const [deleteTarget, setDeleteTarget] = useState<ApiPackage | null>(null);
   const [toggleTarget, setToggleTarget] = useState<ApiPackage | null>(null);
   const [viewTarget, setViewTarget] = useState<ApiPackage | null>(null);
-  
+
   // Filter states
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
   const [serviceFilter, setServiceFilter] = useState<string>("all");
@@ -482,7 +485,7 @@ export default function PackagesPage() {
     return [...packages]
       .filter((pkg) => {
         const pkgServices = packageServices(pkg);
-        
+
         // Filter by category
         if (categoryFilter !== "all") {
           const hasCategory =
@@ -491,7 +494,7 @@ export default function PackagesPage() {
             ) || packageCategoryId(pkg) === categoryFilter;
           if (!hasCategory) return false;
         }
-        
+
         // Filter by service
         if (serviceFilter !== "all") {
           const hasService = pkgServices.some(
@@ -499,7 +502,7 @@ export default function PackagesPage() {
           );
           if (!hasService) return false;
         }
-        
+
         return true;
       })
       .sort((a, b) => {
@@ -726,7 +729,7 @@ export default function PackagesPage() {
             ))}
           </select>
         </div>
-        
+
         <div className="flex-1 min-w-[200px]">
           <label className="block text-xs font-semibold text-gray-500 uppercase mb-1.5">
             Service
@@ -749,7 +752,7 @@ export default function PackagesPage() {
             </p>
           )}
         </div>
-        
+
         {/* Clear Filters Button */}
         {(categoryFilter !== "all" || serviceFilter !== "all") && (
           <button
@@ -771,8 +774,8 @@ export default function PackagesPage() {
             <Layers size={36} className="mx-auto mb-3 opacity-30" />
             <p className="font-medium">No packages found</p>
             <p className="text-sm mt-1">
-              {categoryFilter !== "all" || serviceFilter !== "all" 
-                ? "Try clearing filters." 
+              {categoryFilter !== "all" || serviceFilter !== "all"
+                ? "Try clearing filters."
                 : "Create your first package."}
             </p>
           </div>
@@ -859,7 +862,8 @@ export default function PackagesPage() {
                               packageOriginalPrice(pkg) != null &&
                               packageOriginalPrice(pkg) !== packageAmount(pkg) && (
                                 <span className="text-xs font-medium text-gray-400 line-through">
-                                  {packageOriginalPrice(pkg)!.toLocaleString()}
+                                  {packageOriginalPrice(pkg)!.toLocaleString()}{" "}
+                                  {packageCurrency(pkg)}
                                 </span>
                               )}
                           </div>
