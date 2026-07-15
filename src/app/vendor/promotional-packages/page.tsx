@@ -56,6 +56,10 @@ interface ApiPackage {
   durationHours?: number | null;
   duration_hours?: number | null;
   slug?: string;
+  originalPrice?: number | null;
+  original_price?: number | null;
+  exactPrice?: number | null;
+  exact_price?: number | null;
 }
 
 type SortKey = "title" | "price" | "discount" | "status";
@@ -66,6 +70,19 @@ const ITEMS_PER_PAGE = 10;
 
 function packageAmount(pkg: ApiPackage) {
   return pkg.money?.amount ?? pkg.amount ?? pkg.price ?? 0;
+}
+
+// The true, undiscounted catalogue price. This is what a promotion discount
+// should always be calculated against — never against packageAmount(), which
+// may already reflect a previously-applied promotional price.
+function packageBasePrice(pkg: ApiPackage) {
+  return (
+    pkg.originalPrice ??
+    pkg.original_price ??
+    pkg.exactPrice ??
+    pkg.exact_price ??
+    packageAmount(pkg)
+  );
 }
 
 function packageCurrency(pkg: ApiPackage) {
@@ -90,7 +107,7 @@ function promotionalMeta(pkg: ApiPackage) {
   const discountValue = pkg.promotionDiscountValue ?? pkg.promotion_discount_value ?? 0;
   const startDate = pkg.promotionStartDate || pkg.promotion_start_date || null;
   const endDate = pkg.promotionEndDate || pkg.promotion_end_date || null;
-  const amount = packageAmount(pkg);
+  const baseAmount = packageBasePrice(pkg);
 
   if (!isPromotional || !discountType || !discountValue) {
     return {
@@ -99,15 +116,16 @@ function promotionalMeta(pkg: ApiPackage) {
       discountValue,
       startDate,
       endDate,
-      finalAmount: amount,
+      baseAmount,
+      finalAmount: baseAmount,
       hasDiscount: false,
     };
   }
 
   const finalAmount =
     discountType === 'FLAT'
-      ? Math.max(0, amount - discountValue)
-      : Math.max(0, amount - Math.round((amount * discountValue) / 100));
+      ? Math.max(0, baseAmount - discountValue)
+      : Math.max(0, baseAmount - Math.round((baseAmount * discountValue) / 100));
 
   return {
     isPromotional: true,
@@ -115,8 +133,9 @@ function promotionalMeta(pkg: ApiPackage) {
     discountValue,
     startDate,
     endDate,
+    baseAmount,
     finalAmount,
-    hasDiscount: finalAmount < amount,
+    hasDiscount: finalAmount < baseAmount,
   };
 }
 
@@ -170,7 +189,9 @@ function PromotionModal({
 
   if (!open || !pkg) return null;
 
-  const baseAmount = packageAmount(pkg);
+  // Always discount off the true base/original price, never off an
+  // already-discounted cached amount.
+  const baseAmount = packageBasePrice(pkg);
   const previewAmount =
     enabled && discountValue
       ? discountType === 'FLAT'
@@ -620,12 +641,12 @@ export default function PromotionalPackagesPage() {
                                   {promo.finalAmount.toLocaleString()} {packageCurrency(pkg)}
                                 </p>
                                 <p className="text-xs text-gray-400 line-through">
-                                  {packageAmount(pkg).toLocaleString()} {packageCurrency(pkg)}
+                                  {promo.baseAmount.toLocaleString()} {packageCurrency(pkg)}
                                 </p>
                               </>
                             ) : (
                               <p className="text-sm font-semibold text-gray-900">
-                                {packageAmount(pkg).toLocaleString()} {packageCurrency(pkg)}
+                                {packageBasePrice(pkg).toLocaleString()} {packageCurrency(pkg)}
                               </p>
                             )}
                           </div>
