@@ -823,6 +823,7 @@ export default function ProfilePage() {
             onChange={(v) => update("primaryEmail", v)}
             type="email"
             icon={Mail}
+            readOnly
           />
           <Field
             label="Telephone"
@@ -859,6 +860,7 @@ export default function ProfilePage() {
             onChange={(v) => update("email", v)}
             icon={Mail}
             type="email"
+            readOnly
           />
           <Field
             label="Phone Number"
