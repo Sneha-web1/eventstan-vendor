@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useRef } from "react";
 import Link from "next/link";
 import {
   AlertTriangle,
@@ -18,6 +18,9 @@ import {
   ToggleRight,
   Trash2,
   X,
+  RotateCcw,
+  Filter,
+  Search,
 } from "lucide-react";
 import { vendorApi } from "@/api/vendorApi";
 import Pagination from "@/components/vendor/Pagination";
@@ -131,6 +134,105 @@ interface ApiPackage {
   show_on_promotional_page?: boolean;
   updatedAt?: string;
   updated_at?: string;
+}
+
+// ── Searchable Select Component ──
+function SearchableSelectField({
+  value,
+  onChange,
+  options,
+  placeholder = "All Categories",
+  label,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  options: { value: string; label: string }[];
+  placeholder?: string;
+  label?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const ref = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        setOpen(false);
+        setQuery("");
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const selected = options.find((o) => o.value === value);
+  const filtered = query
+    ? options.filter((o) => o.label.toLowerCase().includes(query.toLowerCase()))
+    : options;
+
+  return (
+    <div className="flex-1 min-w-[200px]">
+      {label && (
+        <label className="block text-xs font-semibold text-gray-500 uppercase mb-1.5">
+          {label}
+        </label>
+      )}
+      <div className="relative" ref={ref}>
+        <button
+          type="button"
+          onClick={() => setOpen((o) => !o)}
+          className="relative w-full flex items-center gap-2 px-4 py-2 pr-9 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-200 focus:border-orange-400 bg-white text-left hover:border-orange-300 transition-colors"
+        >
+          <span className={`truncate ${selected ? "text-gray-700" : "text-gray-400"}`}>
+            {selected ? selected.label : placeholder}
+          </span>
+          <ChevronDown
+            size={13}
+            className={`absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 transition-transform ${open ? "rotate-180" : ""}`}
+          />
+        </button>
+
+        {open && (
+          <div className="absolute z-30 mt-1 w-full bg-white border border-gray-200 rounded-xl shadow-lg overflow-hidden">
+            <div className="p-2 border-b border-gray-100">
+              <input
+                autoFocus
+                type="text"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Search..."
+                className="w-full px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-200 focus:border-orange-400"
+              />
+            </div>
+            <div className="max-h-56 overflow-y-auto py-1">
+              {filtered.length === 0 && (
+                <p className="px-3 py-2 text-xs text-gray-400">No options found</p>
+              )}
+              {filtered.map((opt) => {
+                const isSelected = opt.value === value;
+                return (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() => {
+                      onChange(opt.value);
+                      setOpen(false);
+                      setQuery("");
+                    }}
+                    className={`w-full flex items-center justify-between gap-2 px-3 py-2 text-sm text-left hover:bg-orange-50 transition-colors
+                      ${isSelected ? "text-orange-600 font-medium bg-orange-50/60" : "text-gray-700"}`}
+                  >
+                    <span className="truncate">{opt.label}</span>
+                    {isSelected && <CheckCircle2 size={14} className="text-orange-500 shrink-0" />}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
 }
 
 function packageAmount(pkg: ApiPackage) {
@@ -414,6 +516,15 @@ export default function PackagesPage() {
       .sort((a, b) => a.name.localeCompare(b.name));
   }, [packages, allCategories]);
 
+  // Convert categories to options format for SearchableSelectField
+  const categoryOptions = useMemo(
+    () => [
+      { value: "all", label: "All Categories" },
+      ...categories.map((cat) => ({ value: cat.id, label: cat.name })),
+    ],
+    [categories]
+  );
+
   // Extract unique services based on selected category
   const services = useMemo(() => {
     const svcs = new Set<string>();
@@ -434,6 +545,15 @@ export default function PackagesPage() {
     });
     return Array.from(svcs).sort();
   }, [packages, categoryFilter]);
+
+  // Convert services to options format for SearchableSelectField
+  const serviceOptions = useMemo(
+    () => [
+      { value: "all", label: "All Services" },
+      ...services.map((svc) => ({ value: svc, label: svc })),
+    ],
+    [services]
+  );
 
   // Reset service filter when category changes
   useEffect(() => {
@@ -479,6 +599,13 @@ export default function PackagesPage() {
       setSortKey(key);
       setSortDir("asc");
     }
+  };
+
+  // Reset all filters
+  const handleResetFilters = () => {
+    setCategoryFilter("all");
+    setServiceFilter("all");
+    setCurrentPage(1);
   };
 
   const filtered = useMemo(() => {
@@ -660,6 +787,8 @@ export default function PackagesPage() {
     );
   }
 
+  const hasActiveFilters = categoryFilter !== "all" || serviceFilter !== "all";
+
   return (
     <div className="space-y-5">
       {/* Header */}
@@ -711,61 +840,71 @@ export default function PackagesPage() {
       </div>
 
       {/* Filters */}
-      <div className="flex flex-wrap gap-4">
-        <div className="flex-1 min-w-[200px]">
-          <label className="block text-xs font-semibold text-gray-500 uppercase mb-1.5">
-            Category
-          </label>
-          <select
-            value={categoryFilter}
-            onChange={(e) => setCategoryFilter(e.target.value)}
-            className="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-200 focus:border-orange-400 bg-white"
-          >
-            <option value="all">All Categories</option>
-            {categories.map((cat) => (
-              <option key={cat.id} value={cat.id}>
-                {cat.name}
-              </option>
-            ))}
-          </select>
-        </div>
+      <div className="flex flex-wrap items-end gap-4">
+        <SearchableSelectField
+          value={categoryFilter}
+          onChange={setCategoryFilter}
+          options={categoryOptions}
+          placeholder="All Categories"
+          label="Category"
+        />
 
-        <div className="flex-1 min-w-[200px]">
-          <label className="block text-xs font-semibold text-gray-500 uppercase mb-1.5">
-            Service
-          </label>
-          <select
-            value={serviceFilter}
-            onChange={(e) => setServiceFilter(e.target.value)}
-            className="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-200 focus:border-orange-400 bg-white"
-          >
-            <option value="all">All Services</option>
-            {services.map((svc) => (
-              <option key={svc} value={svc}>
-                {svc}
-              </option>
-            ))}
-          </select>
-          {categoryFilter !== "all" && services.length === 0 && (
-            <p className="text-xs text-gray-400 mt-1">
-              No services available in this category
-            </p>
+        <SearchableSelectField
+          value={serviceFilter}
+          onChange={setServiceFilter}
+          options={serviceOptions}
+          placeholder="All Services"
+          label="Service"
+        />
+
+        <button
+          onClick={handleResetFilters}
+          className="inline-flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium text-gray-600 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 hover:text-gray-900 transition-colors shrink-0"
+          title="Reset all filters"
+        >
+          <RotateCcw size={15} />
+          Reset
+        </button>
+      </div>
+
+      {/* Active filters indicator */}
+      {hasActiveFilters && (
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-xs text-gray-500">Active filters:</span>
+          {categoryFilter !== "all" && (
+            <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-orange-50 text-orange-700 text-xs rounded-full">
+              <Filter size={12} />
+              {categories.find(c => c.id === categoryFilter)?.name || categoryFilter}
+              <button
+                onClick={() => setCategoryFilter("all")}
+                className="text-orange-400 hover:text-orange-600"
+              >
+                <X size={12} />
+              </button>
+            </span>
+          )}
+          {serviceFilter !== "all" && (
+            <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-orange-50 text-orange-700 text-xs rounded-full">
+              <Search size={12} />
+              {serviceFilter}
+              <button
+                onClick={() => setServiceFilter("all")}
+                className="text-orange-400 hover:text-orange-600"
+              >
+                <X size={12} />
+              </button>
+            </span>
+          )}
+          {hasActiveFilters && (
+            <button
+              onClick={handleResetFilters}
+              className="text-xs text-gray-400 hover:text-gray-600 underline-offset-2 hover:underline"
+            >
+              Clear all
+            </button>
           )}
         </div>
-
-        {/* Clear Filters Button */}
-        {(categoryFilter !== "all" || serviceFilter !== "all") && (
-          <button
-            onClick={() => {
-              setCategoryFilter("all");
-              setServiceFilter("all");
-            }}
-            className="self-end px-4 py-2 text-sm font-medium text-gray-600 hover:text-gray-900 bg-gray-100 hover:bg-gray-200 rounded-xl transition-colors"
-          >
-            Clear Filters ✕
-          </button>
-        )}
-      </div>
+      )}
 
       {/* Table */}
       <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
@@ -774,8 +913,8 @@ export default function PackagesPage() {
             <Layers size={36} className="mx-auto mb-3 opacity-30" />
             <p className="font-medium">No packages found</p>
             <p className="text-sm mt-1">
-              {categoryFilter !== "all" || serviceFilter !== "all"
-                ? "Try clearing filters."
+              {hasActiveFilters
+                ? "Try clearing your filters."
                 : "Create your first package."}
             </p>
           </div>

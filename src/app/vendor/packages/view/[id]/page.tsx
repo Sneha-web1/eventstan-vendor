@@ -150,6 +150,17 @@ function packageCurrency(pkg: ApiPackage) {
   return pkg.money?.currency ?? pkg.currency ?? "AED";
 }
 
+// Formats any parseable date string into dd-mm-yyyy
+function formatDateDDMMYYYY(dateStr?: string | null) {
+  if (!dateStr) return "";
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return "";
+  const day = String(d.getDate()).padStart(2, "0");
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const year = d.getFullYear();
+  return `${day}-${month}-${year}`;
+}
+
 export default function PackageViewPage() {
   const params = useParams();
   const router = useRouter();
@@ -344,9 +355,6 @@ export default function PackageViewPage() {
   const promotionalPrice = getPromotionalPrice();
   const discountType = pkg.promotionDiscountType || pkg.promotion_discount_type;
   const discountValue = pkg.promotionDiscountValue ?? pkg.promotion_discount_value;
-  // The backend may return `amount`/`money.amount` already discounted, while
-  // exactPrice/exact_price always holds the true original price. Use that as
-  // the base for discount math so "you save" isn't computed against itself.
   const originalPrice = pkg.exactPrice ?? pkg.exact_price ?? amount;
   const discountAmount =
     isPromotional && promotionalPrice != null
@@ -597,9 +605,9 @@ export default function PackageViewPage() {
               <span>
                 Promotion valid
                 {promotionStart &&
-                  ` from ${new Date(promotionStart).toLocaleDateString()}`}
+                  ` from ${formatDateDDMMYYYY(promotionStart)}`}
                 {promotionEnd &&
-                  ` to ${new Date(promotionEnd).toLocaleDateString()}`}
+                  ` to ${formatDateDDMMYYYY(promotionEnd)}`}
               </span>
             </div>
           )}

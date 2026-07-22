@@ -128,5 +128,6 @@ export const vendorApi = {
     countries: <T = unknown[]>() => request<T>('master-data/countries'),
     categories: <T = unknown[]>() => request<T>('master-data/categories'),
     priceUnits: <T = unknown[]>() => request<T>('master-data/price-units'),
+    visaTypes: <T = unknown[]>() => request<T>('master-data/visa-types'),
   },
 };

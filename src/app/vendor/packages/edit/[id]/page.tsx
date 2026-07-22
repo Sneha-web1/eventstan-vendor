@@ -778,7 +778,7 @@ export default function EditPackagePage() {
             </div>
             <div>
               <h2 className="text-lg font-semibold text-gray-900">
-                Package essentials
+                Package Essentials
               </h2>
               <p className="text-sm text-gray-500">
                 Update the package details as needed.

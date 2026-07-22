@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -22,6 +22,8 @@ import {
   X,
   Package,
   DollarSign,
+  Filter,
+  RotateCcw,
 } from "lucide-react";
 import { vendorApi } from "@/api/vendorApi";
 import Pagination from "@/components/vendor/Pagination";
@@ -57,6 +59,96 @@ interface ConfirmModalProps {
   icon?: React.ReactNode;
   onConfirm: () => void;
   onCancel: () => void;
+}
+
+// ── Searchable Select Component ──
+function SearchableSelectField({
+  value,
+  onChange,
+  options,
+  placeholder = "All Categories",
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  options: { value: string; label: string }[];
+  placeholder?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const ref = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        setOpen(false);
+        setQuery("");
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const selected = options.find((o) => o.value === value);
+  const filtered = query
+    ? options.filter((o) => o.label.toLowerCase().includes(query.toLowerCase()))
+    : options;
+
+  return (
+    <div className="relative min-w-[180px]" ref={ref}>
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="relative w-full flex items-center gap-2 px-4 py-2.5 pr-9 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-200 focus:border-orange-400 bg-white text-left hover:border-orange-300 transition-colors"
+      >
+        <span className={`truncate ${selected ? "text-gray-700" : "text-gray-400"}`}>
+          {selected ? selected.label : placeholder}
+        </span>
+        <ChevronDown
+          size={13}
+          className={`absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 transition-transform ${open ? "rotate-180" : ""}`}
+        />
+      </button>
+
+      {open && (
+        <div className="absolute z-30 mt-1 w-full bg-white border border-gray-200 rounded-xl shadow-lg overflow-hidden">
+          <div className="p-2 border-b border-gray-100">
+            <input
+              autoFocus
+              type="text"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search categories..."
+              className="w-full px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-200 focus:border-orange-400"
+            />
+          </div>
+          <div className="max-h-56 overflow-y-auto py-1">
+            {filtered.length === 0 && (
+              <p className="px-3 py-2 text-xs text-gray-400">No categories found</p>
+            )}
+            {filtered.map((opt) => {
+              const isSelected = opt.value === value;
+              return (
+                <button
+                  key={opt.value}
+                  type="button"
+                  onClick={() => {
+                    onChange(opt.value);
+                    setOpen(false);
+                    setQuery("");
+                  }}
+                  className={`w-full flex items-center justify-between gap-2 px-3 py-2 text-sm text-left hover:bg-orange-50 transition-colors
+                    ${isSelected ? "text-orange-600 font-medium bg-orange-50/60" : "text-gray-700"}`}
+                >
+                  <span className="truncate">{opt.label}</span>
+                  {isSelected && <CheckCircle2 size={14} className="text-orange-500 shrink-0" />}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
 const statusLabel = (status: string) => (status === "ACTIVE" ? "Active" : "Inactive");
@@ -157,6 +249,11 @@ export default function ServicesPage() {
     [services]
   );
 
+  const categoryOptions = useMemo(
+    () => categories.map((cat) => ({ value: cat, label: cat })),
+    [categories]
+  );
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return [...services]
@@ -231,6 +328,14 @@ export default function ServicesPage() {
       setError("Failed to update service status");
       window.setTimeout(() => setError(null), 3000);
     }
+  };
+
+  // Reset all filters
+  const handleResetFilters = () => {
+    setSearchInput("");
+    setSearch("");
+    setCategoryFilter("");
+    setCurrentPage(1);
   };
 
   if (loading) {
@@ -309,7 +414,7 @@ export default function ServicesPage() {
         </div>
       </div>
 
-      {/* Filters */}
+      {/* Filters - with searchable category dropdown and reset button */}
       <div className="flex flex-col sm:flex-row gap-3">
         <div className="relative flex-1">
           <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" />
@@ -320,17 +425,63 @@ export default function ServicesPage() {
             className="w-full pl-10 pr-4 py-2.5 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-200 focus:border-orange-400 bg-white transition"
           />
         </div>
-        <select
+        <SearchableSelectField
           value={categoryFilter}
-          onChange={(e) => setCategoryFilter(e.target.value)}
-          className="px-4 py-2.5 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-200 focus:border-orange-400 bg-white text-gray-600 min-w-[180px]"
+          onChange={setCategoryFilter}
+          options={categoryOptions}
+          placeholder="All Categories"
+        />
+        <button
+          onClick={handleResetFilters}
+          className="inline-flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium text-gray-600 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 hover:text-gray-900 transition-colors shrink-0"
+          title="Reset all filters"
         >
-          <option value="">All Categories</option>
-          {categories.map((cat) => (
-            <option key={cat} value={cat}>{cat}</option>
-          ))}
-        </select>
+          <RotateCcw size={15} />
+          Reset
+        </button>
       </div>
+
+      {/* Active filters indicator */}
+      {(searchInput || categoryFilter) && (
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-xs text-gray-500">Active filters:</span>
+          {searchInput && (
+            <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-orange-50 text-orange-700 text-xs rounded-full">
+              <Search size={12} />
+              {searchInput}
+              <button
+                onClick={() => {
+                  setSearchInput("");
+                  setSearch("");
+                }}
+                className="text-orange-400 hover:text-orange-600"
+              >
+                <X size={12} />
+              </button>
+            </span>
+          )}
+          {categoryFilter && (
+            <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-orange-50 text-orange-700 text-xs rounded-full">
+              <Filter size={12} />
+              {categoryFilter}
+              <button
+                onClick={() => setCategoryFilter("")}
+                className="text-orange-400 hover:text-orange-600"
+              >
+                <X size={12} />
+              </button>
+            </span>
+          )}
+          {(searchInput || categoryFilter) && (
+            <button
+              onClick={handleResetFilters}
+              className="text-xs text-gray-400 hover:text-gray-600 underline-offset-2 hover:underline"
+            >
+              Clear all
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Table */}
       <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden shadow-sm">

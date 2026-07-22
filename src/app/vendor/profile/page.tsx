@@ -20,6 +20,8 @@ import {
   Percent,
   Lock,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   CheckCircle2,
   Upload,
   ExternalLink,
@@ -32,6 +34,65 @@ import {
 } from "lucide-react";
 import { vendorApi } from "@/api/vendorApi";
 import { updateSessionUser } from "@/lib/auth";
+
+// Country dialing codes for the phone fields' country-code selector.
+// Loaded at runtime from the master-data/countries API (see `countryCodes`
+// state in ProfilePage) instead of being hardcoded here.
+interface CountryOption {
+  code: string; // phoneCode, e.g. "+971"
+  country: string; // name, e.g. "United Arab Emirates (UAE)"
+  flag: string;
+}
+
+// Sensible fallback shown until the master-data/countries API responds
+// (or if that call fails), so the phone fields never render empty.
+const DEFAULT_COUNTRY_CODES: CountryOption[] = [
+  { code: "+971", country: "United Arab Emirates (UAE)", flag: "🇦🇪" },
+];
+
+// Areas within Dubai — used for the "Service Cities" selector so vendors can pick
+// specific Dubai localities rather than just the emirate name.
+const DUBAI_AREAS = [
+  "Downtown Dubai",
+  "Dubai Marina",
+  "Jumeirah",
+  "Deira",
+  "Bur Dubai",
+  "Business Bay",
+  "Al Barsha",
+  "Jumeirah Lake Towers (JLT)",
+  "Palm Jumeirah",
+  "Al Quoz",
+  "International City",
+  "Dubai Silicon Oasis",
+  "Dubai Sports City",
+  "Discovery Gardens",
+  "Jumeirah Village Circle (JVC)",
+  "Jumeirah Village Triangle (JVT)",
+  "Al Nahda",
+  "Mirdif",
+  "Umm Suqeim",
+  "Al Karama",
+  "Al Satwa",
+  "Al Barari",
+  "Arabian Ranches",
+  "Motor City",
+  "Dubai Investment Park (DIP)",
+  "Dubai Production City",
+  "Dubai Studio City",
+  "Al Furjan",
+  "The Springs",
+  "The Meadows",
+  "Emirates Hills",
+  "Dubai Festival City",
+  "Dubai Healthcare City",
+  "Al Rigga",
+  "Al Qusais",
+  "Nad Al Sheba",
+  "Dubai South",
+  "Damac Hills",
+  "Town Square",
+] as const;
 
 interface VendorProfile {
   id: string;
@@ -56,6 +117,8 @@ interface VendorProfile {
   userName?: string | null;
   primaryEmail?: string | null;
   telephone?: string | null;
+  telephoneCountryCode?: string | null;
+  primaryMobileCountryCode?: string | null;
   // Legal / Business
   tradeLicenseNumber?: string | null;
   tradeLicenseExpiry?: string | null;
@@ -82,6 +145,29 @@ interface VendorProfile {
   branchAddress?: string | null;
 }
 
+// Shape of a row returned by GET /master-data/countries
+interface CountryMasterRow {
+  id: number;
+  code: string;
+  name: string;
+  defaultCurrency: string;
+  flag: string;
+  currencySymbol: string;
+  phoneCode: string;
+  status: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// Shape of a row returned by GET /master-data/visa-types
+interface VisaTypeMasterRow {
+  id: string;
+  name: string;
+  status: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 /* ─── helpers ──────────────────────────────────────────────── */
 function formatDate(iso?: string | null) {
   if (!iso) return "—";
@@ -93,11 +179,6 @@ function formatDate(iso?: string | null) {
 }
 
 function isPlanExpired(iso?: string | null) {
-  if (!iso) return false;
-  return new Date(iso) < new Date();
-}
-
-function isDocExpired(iso?: string | null) {
   if (!iso) return false;
   return new Date(iso) < new Date();
 }
@@ -118,6 +199,19 @@ function hasValue(value: string | number | string[] | null | undefined) {
   return Boolean(value && String(value).trim());
 }
 
+// Strips anything that isn't a letter, space, apostrophe or hyphen — used to
+// keep numbers/symbols out of name fields.
+function sanitizeNameInput(value: string) {
+  return value.replace(/[^A-Za-z\s'-]/g, "");
+}
+
+// Keeps digits only — used for the telephone number input.
+function sanitizeDigitsInput(value: string) {
+  return value.replace(/\D/g, "");
+}
+
+const NAME_MAX_LENGTH = 40;
+
 /* ─── sub-components ───────────────────────────────────────── */
 function SectionCard({
   title,
@@ -132,11 +226,11 @@ function SectionCard({
 }) {
   const [open, setOpen] = useState(defaultOpen);
   return (
-    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm">
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className="w-full flex items-center justify-between gap-2 px-6 py-4 hover:bg-gray-50 transition-colors"
+        className="w-full flex items-center justify-between gap-2 px-6 py-4 rounded-2xl hover:bg-gray-50 transition-colors"
       >
         <div className="flex items-center gap-2">
           <div className="w-7 h-7 rounded-lg bg-orange-50 flex items-center justify-center">
@@ -162,6 +256,9 @@ function Field({
   type = "text",
   readOnly = false,
   placeholder = "",
+  min,
+  max,
+  maxLength,
 }: {
   label: string;
   icon?: React.ElementType;
@@ -170,6 +267,9 @@ function Field({
   type?: string;
   readOnly?: boolean;
   placeholder?: string;
+  min?: string;
+  max?: string;
+  maxLength?: number;
 }) {
   return (
     <div>
@@ -188,6 +288,9 @@ function Field({
           value={value}
           readOnly={readOnly}
           placeholder={placeholder}
+          min={min}
+          max={max}
+          maxLength={maxLength}
           onChange={onChange ? (e) => onChange(e.target.value) : undefined}
           className={`w-full py-2.5 text-sm border rounded-xl focus:outline-none transition
             ${Icon ? "pl-9 pr-4" : "px-4"}
@@ -208,21 +311,497 @@ function Field({
   );
 }
 
+// Dedicated name input: blocks numbers/symbols as the user types and caps length,
+// without showing a live character counter underneath.
+function NameField({
+  label,
+  value,
+  onChange,
+  icon: Icon = User,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  icon?: React.ElementType;
+}) {
+  return (
+    <div>
+      <label className="text-xs font-medium text-gray-500 mb-1 block">
+        {label}
+      </label>
+      <div className="relative">
+        <Icon
+          size={13}
+          className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
+        />
+        <input
+          type="text"
+          value={value}
+          maxLength={NAME_MAX_LENGTH}
+          onChange={(e) => onChange(sanitizeNameInput(e.target.value).slice(0, NAME_MAX_LENGTH))}
+          className="w-full py-2.5 pl-9 pr-4 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-200 focus:border-orange-400 bg-white text-gray-800"
+        />
+      </div>
+    </div>
+  );
+}
+
+const MONTH_NAMES = [
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December",
+];
+const WEEKDAY_LABELS = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
+
+function toIsoDate(d: Date) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+// Fully custom calendar date picker (no native <input type="date">), so past
+// dates can be truly disabled/grayed and past months can't even be navigated to.
+function DateField({
+  label,
+  value,
+  onChange,
+  icon: Icon = CalendarClock,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  icon?: React.ElementType;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement | null>(null);
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const parsed = value ? new Date(`${value}T00:00:00`) : null;
+  const [viewYear, setViewYear] = useState(parsed ? parsed.getFullYear() : today.getFullYear());
+  const [viewMonth, setViewMonth] = useState(parsed ? parsed.getMonth() : today.getMonth());
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const firstWeekday = new Date(viewYear, viewMonth, 1).getDay();
+  const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
+  const daysInPrevMonth = new Date(viewYear, viewMonth, 0).getDate();
+
+  const cells: { day: number; date: Date; inMonth: boolean }[] = [];
+  for (let i = firstWeekday - 1; i >= 0; i--) {
+    cells.push({ day: daysInPrevMonth - i, date: new Date(viewYear, viewMonth - 1, daysInPrevMonth - i), inMonth: false });
+  }
+  for (let d = 1; d <= daysInMonth; d++) {
+    cells.push({ day: d, date: new Date(viewYear, viewMonth, d), inMonth: true });
+  }
+  while (cells.length < 42) {
+    const last = cells[cells.length - 1].date;
+    const next = new Date(last);
+    next.setDate(next.getDate() + 1);
+    cells.push({ day: next.getDate(), date: next, inMonth: false });
+  }
+
+  // Prevent navigating into any month before the current one.
+  const isCurrentViewMonth = viewYear === today.getFullYear() && viewMonth === today.getMonth();
+
+  const goPrevMonth = () => {
+    if (isCurrentViewMonth) return;
+    const m = viewMonth - 1;
+    if (m < 0) {
+      setViewMonth(11);
+      setViewYear((y) => y - 1);
+    } else {
+      setViewMonth(m);
+    }
+  };
+  const goNextMonth = () => {
+    const m = viewMonth + 1;
+    if (m > 11) {
+      setViewMonth(0);
+      setViewYear((y) => y + 1);
+    } else {
+      setViewMonth(m);
+    }
+  };
+
+  const selectDate = (d: Date) => {
+    if (d < today) return;
+    onChange(toIsoDate(d));
+    setOpen(false);
+  };
+
+  const displayLabel = parsed
+    ? parsed.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })
+    : "Select date";
+
+  return (
+    <div className="relative" ref={ref}>
+      <label className="text-xs font-medium text-gray-500 mb-1 block">{label}</label>
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="relative w-full flex items-center py-2.5 pl-9 pr-4 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-200 focus:border-orange-400 bg-white text-left"
+      >
+        <Icon size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+        <span className={parsed ? "text-gray-800" : "text-gray-400"}>{displayLabel}</span>
+      </button>
+
+      {open && (
+        <div className="absolute z-30 mt-1 w-72 bg-white border border-gray-200 rounded-xl shadow-lg p-3">
+          <div className="flex items-center justify-between mb-2 px-1">
+            <p className="text-sm font-semibold text-gray-800">
+              {MONTH_NAMES[viewMonth]} {viewYear}
+            </p>
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={goPrevMonth}
+                disabled={isCurrentViewMonth}
+                className="p-1.5 rounded-lg hover:bg-gray-100 disabled:opacity-25 disabled:cursor-not-allowed text-gray-500"
+                title={isCurrentViewMonth ? "Past months aren't available" : "Previous month"}
+              >
+                <ChevronLeft size={14} />
+              </button>
+              <button
+                type="button"
+                onClick={goNextMonth}
+                className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500"
+              >
+                <ChevronRight size={14} />
+              </button>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-7 gap-1 mb-1">
+            {WEEKDAY_LABELS.map((w) => (
+              <div key={w} className="text-center text-[11px] font-medium text-gray-400 py-1">
+                {w}
+              </div>
+            ))}
+          </div>
+
+          <div className="grid grid-cols-7 gap-1">
+            {cells.map((cell, idx) => {
+              const isPast = cell.date < today;
+              const isToday = cell.date.getTime() === today.getTime();
+              const isSelected = parsed && cell.date.getTime() === parsed.getTime();
+              return (
+                <button
+                  key={idx}
+                  type="button"
+                  disabled={isPast}
+                  onClick={() => selectDate(cell.date)}
+                  className={`text-xs h-8 w-8 rounded-lg flex items-center justify-center transition-colors
+                    ${isPast ? "text-gray-300 cursor-not-allowed" : "text-gray-700 hover:bg-orange-50 cursor-pointer"}
+                    ${!cell.inMonth && !isPast ? "text-gray-400" : ""}
+                    ${isSelected ? "bg-orange-500 text-white hover:bg-orange-500" : ""}
+                    ${isToday && !isSelected ? "border border-orange-400" : ""}
+                  `}
+                >
+                  {cell.day}
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="flex items-center justify-between mt-2 pt-2 border-t border-gray-100 px-1">
+            <button
+              type="button"
+              onClick={() => {
+                onChange("");
+                setOpen(false);
+              }}
+              className="text-xs font-medium text-gray-400 hover:text-gray-600"
+            >
+              Clear
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setViewYear(today.getFullYear());
+                setViewMonth(today.getMonth());
+                selectDate(today);
+              }}
+              className="text-xs font-medium text-orange-500 hover:text-orange-600"
+            >
+              Today
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SelectField({
+  label,
+  icon: Icon,
+  value,
+  onChange,
+  options,
+  placeholder = "Select an option",
+}: {
+  label: string;
+  icon?: React.ElementType;
+  value: string;
+  onChange: (v: string) => void;
+  options: { value: string; label: string }[];
+  placeholder?: string;
+}) {
+  return (
+    <div>
+      <label className="text-xs font-medium text-gray-500 mb-1 block">
+        {label}
+      </label>
+      <div className="relative">
+        {Icon && (
+          <Icon
+            size={13}
+            className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none"
+          />
+        )}
+        <select
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          className={`w-full py-2.5 pr-9 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-200 focus:border-orange-400 bg-white text-gray-800 appearance-none
+            ${Icon ? "pl-9" : "px-4"}`}
+        >
+          <option value="">{placeholder}</option>
+          {options.map((opt) => (
+            <option key={opt.value} value={opt.value}>
+              {opt.label}
+            </option>
+          ))}
+        </select>
+        <ChevronDown
+          size={13}
+          className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none"
+        />
+      </div>
+    </div>
+  );
+}
+
+// A nicer, fully custom single-select dropdown (styled like the Cities
+// multi-select): searchable, shows a checkmark on the selected option, and
+// closes on outside click. Used for fields like Specialization and Visa
+// Type where a plain native <select> feels flat.
+function SearchableSelectField({
+  label,
+  icon: Icon,
+  value,
+  onChange,
+  options,
+  placeholder = "Select an option",
+}: {
+  label: string;
+  icon?: React.ElementType;
+  value: string;
+  onChange: (v: string) => void;
+  options: { value: string; label: string }[];
+  placeholder?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const ref = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        setOpen(false);
+        setQuery("");
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const selected = options.find((o) => o.value === value);
+  const filtered = query
+    ? options.filter((o) => o.label.toLowerCase().includes(query.toLowerCase()))
+    : options;
+
+  return (
+    <div className="relative" ref={ref}>
+      <label className="text-xs font-medium text-gray-500 mb-1 block">
+        {label}
+      </label>
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="relative w-full flex items-center gap-2 py-2.5 pl-9 pr-9 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-200 focus:border-orange-400 bg-white text-left hover:border-orange-300 transition-colors"
+      >
+        {Icon && (
+          <Icon size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+        )}
+        <span className={`truncate ${selected ? "text-gray-800" : "text-gray-400"}`}>
+          {selected ? selected.label : placeholder}
+        </span>
+        <ChevronDown
+          size={13}
+          className={`absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 transition-transform ${open ? "rotate-180" : ""}`}
+        />
+      </button>
+
+      {open && (
+        <div className="absolute z-30 mt-1 w-full bg-white border border-gray-200 rounded-xl shadow-lg overflow-hidden">
+          <div className="p-2 border-b border-gray-100">
+            <input
+              autoFocus
+              type="text"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search..."
+              className="w-full px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-200 focus:border-orange-400"
+            />
+          </div>
+          <div className="max-h-56 overflow-y-auto py-1">
+            {filtered.length === 0 && (
+              <p className="px-3 py-2 text-xs text-gray-400">No matches found</p>
+            )}
+            {filtered.map((opt) => {
+              const isSelected = opt.value === value;
+              return (
+                <button
+                  key={opt.value}
+                  type="button"
+                  onClick={() => {
+                    onChange(opt.value);
+                    setOpen(false);
+                    setQuery("");
+                  }}
+                  className={`w-full flex items-center justify-between gap-2 px-3 py-2 text-sm text-left hover:bg-orange-50 transition-colors
+                    ${isSelected ? "text-orange-600 font-medium bg-orange-50/60" : "text-gray-700"}`}
+                >
+                  <span className="truncate">{opt.label}</span>
+                  {isSelected && <CheckCircle2 size={14} className="text-orange-500 shrink-0" />}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Phone field with a flag + country-code dropdown; only the local number
+// (digits only) is stored/shown in the number input, the dialing code is
+// tracked separately. Used for both Telephone and Primary Mobile.
+// `options` now comes from the master-data/countries API (see ProfilePage),
+// instead of a hardcoded list.
+function PhoneField({
+  label,
+  countryCode,
+  number,
+  onCountryCodeChange,
+  onNumberChange,
+  options,
+}: {
+  label: string;
+  countryCode: string;
+  number: string;
+  onCountryCodeChange: (v: string) => void;
+  onNumberChange: (v: string) => void;
+  options: CountryOption[];
+}) {
+  const [open, setOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+  const selected = options.find((c) => c.code === countryCode) ?? options[0];
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  return (
+    <div>
+      <label className="text-xs font-medium text-gray-500 mb-1 block">
+        {label}
+      </label>
+      <div className="flex items-stretch border border-gray-200 rounded-xl overflow-visible focus-within:ring-2 focus-within:ring-orange-200 focus-within:border-orange-400 bg-white relative">
+        <div className="relative shrink-0" ref={menuRef}>
+          <button
+            type="button"
+            onClick={() => setOpen((o) => !o)}
+            className="flex items-center gap-1.5 h-full pl-3 pr-2.5 py-2.5 text-sm border-r border-gray-200 rounded-l-xl hover:bg-gray-50 transition-colors"
+          >
+            <span className="text-lg leading-none">{selected?.flag}</span>
+            <span className="text-gray-700 font-medium">{selected?.code}</span>
+            <ChevronDown size={12} className="text-gray-400" />
+          </button>
+          {open && (
+            <div className="absolute z-30 top-full left-0 mt-1 w-64 bg-white border border-gray-200 rounded-xl shadow-lg max-h-64 overflow-y-auto py-1">
+              {options.map((c) => (
+                <button
+                  key={c.code}
+                  type="button"
+                  onClick={() => {
+                    onCountryCodeChange(c.code);
+                    setOpen(false);
+                  }}
+                  className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-left hover:bg-gray-50"
+                >
+                  <span className="text-lg leading-none">{c.flag}</span>
+                  <span className="flex-1 text-gray-700">{c.country}</span>
+                  <span className="text-gray-400">{c.code}</span>
+                  {c.code === countryCode && (
+                    <CheckCircle2 size={14} className="text-orange-500" />
+                  )}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+        <input
+          type="tel"
+          inputMode="numeric"
+          value={number}
+          placeholder="Number only"
+          onChange={(e) => onNumberChange(sanitizeDigitsInput(e.target.value).slice(0, 15))}
+          className="flex-1 min-w-0 py-2.5 px-3 text-sm rounded-r-xl focus:outline-none bg-white text-gray-800"
+        />
+      </div>
+    </div>
+  );
+}
+
 function FileUploadField({
   label,
   fileUrl,
   onUploaded,
   folder,
+  maxSizeMb = 3,
 }: {
   label: string;
   fileUrl?: string | null;
   onUploaded: (result: { url: string; key: string }) => void;
   folder: string;
+  maxSizeMb?: number;
 }) {
   const [uploading, setUploading] = useState(false);
+  const [sizeError, setSizeError] = useState("");
   const inputId = `upload-${folder}-${label.replace(/\s+/g, "-").toLowerCase()}`;
 
   const handleFile = async (file: File) => {
+    setSizeError("");
+    const maxBytes = maxSizeMb * 1024 * 1024;
+    if (file.size > maxBytes) {
+      setSizeError(`File must be ${maxSizeMb}MB or smaller.`);
+      return;
+    }
     try {
       setUploading(true);
       const result = await vendorApi.uploads.image(file, folder);
@@ -254,7 +833,7 @@ function FileUploadField({
               ? "Uploading..."
               : fileUrl
                 ? "Replace file"
-                : "Upload file (PDF, JPG, PNG)"}
+                : `Upload file (PDF, JPG, PNG · max ${maxSizeMb}MB)`}
           </span>
         </label>
         <input
@@ -280,8 +859,12 @@ function FileUploadField({
           </a>
         )}
       </div>
+      {sizeError && <p className="text-xs text-red-500 mt-1">{sizeError}</p>}
       <p className="text-xs text-gray-400 mt-1">
-        {fileUrl ? "File uploaded. The link updates once you replace it." : "No file uploaded yet."}
+        {fileUrl
+          ? "File uploaded. The link updates once you replace it."
+          : "No file uploaded yet."}
+        {" "}Max file size: <span className="font-medium text-gray-500">{maxSizeMb}MB</span>.
       </p>
     </div>
   );
@@ -436,16 +1019,30 @@ export default function ProfilePage() {
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
-  const [cityInput, setCityInput] = useState("");
   const [avatarMenuOpen, setAvatarMenuOpen] = useState(false);
   const [showPhoto, setShowPhoto] = useState(false);
+  const [categories, setCategories] = useState<
+    Array<{ id: string; name: string }>
+  >([]);
+  // Country dialing codes, sourced from GET /master-data/countries.
+  // Starts with a safe default so the phone-code dropdown is never empty
+  // while the request is in flight (or if it fails).
+  const [countryCodes, setCountryCodes] = useState<CountryOption[]>(DEFAULT_COUNTRY_CODES);
+  // Visa types, sourced from GET /master-data/visa-types, used to populate
+  // the Visa Type dropdown in the Legal & Compliance section.
+  const [visaTypes, setVisaTypes] = useState<Array<{ value: string; label: string }>>([]);
+  const [citiesMenuOpen, setCitiesMenuOpen] = useState(false);
   const avatarMenuRef = useRef<HTMLDivElement | null>(null);
   const avatarInputRef = useRef<HTMLInputElement | null>(null);
+  const citiesMenuRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
       if (avatarMenuRef.current && !avatarMenuRef.current.contains(e.target as Node)) {
         setAvatarMenuOpen(false);
+      }
+      if (citiesMenuRef.current && !citiesMenuRef.current.contains(e.target as Node)) {
+        setCitiesMenuOpen(false);
       }
     }
     document.addEventListener("mousedown", handleClickOutside);
@@ -455,13 +1052,59 @@ export default function ProfilePage() {
   useEffect(() => {
     vendorApi.profile
       .get<VendorProfile>()
-      .then(setProfile)
+      .then((data) =>
+        setProfile({
+          ...data,
+          telephoneCountryCode: data.telephoneCountryCode || "+971",
+          primaryMobileCountryCode: data.primaryMobileCountryCode || "+971",
+        }),
+      )
       .catch((cause: unknown) =>
         setError(
           cause instanceof Error ? cause.message : "Unable to load profile",
         ),
       )
       .finally(() => setLoading(false));
+
+    vendorApi.masterData
+      .categories<Array<{ id: string; name: string }>>()
+      .then(setCategories)
+      .catch((cause: unknown) =>
+        console.error("Unable to load categories:", cause),
+      );
+
+    // Load dialing codes (+ flag, country name) from master data instead of
+    // a hardcoded list, so new countries added on the backend show up here
+    // automatically.
+    vendorApi.masterData
+      .countries<CountryMasterRow[]>()
+      .then((data) => {
+        const mapped = data
+          .filter((c) => c.status === "Active" && c.phoneCode)
+          .map((c) => ({
+            code: c.phoneCode,
+            country: c.name,
+            flag: c.flag,
+          }));
+        if (mapped.length) setCountryCodes(mapped);
+      })
+      .catch((cause: unknown) =>
+        console.error("Unable to load countries:", cause),
+      );
+
+    // Load visa types from master data so the Visa Type field becomes a
+    // dropdown instead of a free-text input.
+    vendorApi.masterData
+      .visaTypes<VisaTypeMasterRow[]>()
+      .then((data) => {
+        const mapped = data
+          .filter((v) => v.status === "Active")
+          .map((v) => ({ value: v.name, label: v.name }));
+        setVisaTypes(mapped);
+      })
+      .catch((cause: unknown) =>
+        console.error("Unable to load visa types:", cause),
+      );
   }, []);
 
   useEffect(() => {
@@ -495,7 +1138,9 @@ export default function ProfilePage() {
         userName: profile.userName ?? "",
         primaryEmail: profile.primaryEmail ?? "",
         telephone: profile.telephone ?? "",
+        telephoneCountryCode: profile.telephoneCountryCode ?? "+971",
         primaryMobile: profile.primaryMobile ?? "",
+        primaryMobileCountryCode: profile.primaryMobileCountryCode ?? "+971",
         about: profile.about ?? "",
         businessLocation: profile.businessLocation ?? "",
         address: profile.address ?? "",
@@ -526,7 +1171,11 @@ export default function ProfilePage() {
         swift: profile.swift ?? "",
         branchAddress: profile.branchAddress ?? "",
       });
-      setProfile(updated);
+      setProfile({
+        ...updated,
+        telephoneCountryCode: updated.telephoneCountryCode || "+971",
+        primaryMobileCountryCode: updated.primaryMobileCountryCode || "+971",
+      });
       updateSessionUser({
         companyName: updated.companyName,
         email: updated.email,
@@ -805,17 +1454,15 @@ export default function ProfilePage() {
       {/* ── 1. Personal Information ── */}
       <SectionCard title="Personal Information" icon={User} defaultOpen>
         <div className="grid sm:grid-cols-2 gap-4">
-          <Field
+          <NameField
             label="First Name"
             value={profile.firstName ?? ""}
             onChange={(v) => update("firstName", v)}
-            icon={User}
           />
-          <Field
+          <NameField
             label="Last Name"
             value={profile.lastName ?? ""}
             onChange={(v) => update("lastName", v)}
-            icon={User}
           />
           <Field
             label="Primary Email"
@@ -825,17 +1472,21 @@ export default function ProfilePage() {
             icon={Mail}
             readOnly
           />
-          <Field
+          <PhoneField
             label="Telephone"
-            value={profile.telephone ?? ""}
-            onChange={(v) => update("telephone", v)}
-            icon={Phone}
+            countryCode={profile.telephoneCountryCode ?? "+971"}
+            number={profile.telephone ?? ""}
+            onCountryCodeChange={(v) => update("telephoneCountryCode", v)}
+            onNumberChange={(v) => update("telephone", v)}
+            options={countryCodes}
           />
-          <Field
+          <PhoneField
             label="Primary Mobile"
-            value={profile.primaryMobile ?? ""}
-            onChange={(v) => update("primaryMobile", v)}
-            icon={Phone}
+            countryCode={profile.primaryMobileCountryCode ?? "+971"}
+            number={profile.primaryMobile ?? ""}
+            onCountryCodeChange={(v) => update("primaryMobileCountryCode", v)}
+            onNumberChange={(v) => update("primaryMobile", v)}
+            options={countryCodes}
           />
         </div>
       </SectionCard>
@@ -868,82 +1519,111 @@ export default function ProfilePage() {
             onChange={(v) => update("phone", v)}
             icon={Phone}
           />
-          <Field
+          <SearchableSelectField
             label="Specialization"
-            value={profile.specialization ?? ""}
+            value={
+              categories.find(
+                (c) =>
+                  c.name.trim().toLowerCase() ===
+                  (profile.specialization ?? "").trim().toLowerCase(),
+              )?.name ??
+              profile.specialization ??
+              ""
+            }
             onChange={(v) => update("specialization", v)}
+            options={categories.map((c) => ({ value: c.name, label: c.name }))}
+            placeholder="Select category"
           />
-          <Field
+          <SearchableSelectField
             label="Business Location"
             value={profile.businessLocation ?? ""}
             onChange={(v) => update("businessLocation", v)}
             icon={MapPin}
+            options={DUBAI_AREAS.map((c) => ({ value: c, label: c }))}
+            placeholder="Select business location"
           />
-          <Field
+          <SearchableSelectField
             label="Address"
             value={profile.address ?? ""}
             onChange={(v) => update("address", v)}
             icon={MapPin}
+            options={DUBAI_AREAS.map((c) => ({ value: c, label: c }))}
+            placeholder="Select address"
           />
         </div>
 
         <div className="grid sm:grid-cols-2 gap-4 mt-4">
           {/* Cities */}
-          <div>
+          <div className="relative" ref={citiesMenuRef}>
             <label className="text-xs font-medium text-gray-500 mb-1 block">
               Service Cities
             </label>
-            <div className="flex flex-wrap items-center gap-2 w-full px-3 py-2 border border-gray-200 rounded-xl focus-within:ring-2 focus-within:ring-orange-200 focus-within:border-orange-400 bg-white">
+            <button
+              type="button"
+              onClick={() => setCitiesMenuOpen((o) => !o)}
+              className="flex flex-wrap items-center gap-2 w-full px-3 py-2 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-200 focus:border-orange-400 bg-white text-left"
+            >
               <Globe size={13} className="text-gray-400 shrink-0" />
+              {profile.cities.length === 0 && (
+                <span className="text-sm text-gray-400">Select service cities</span>
+              )}
               {profile.cities.map((city) => (
                 <span
                   key={city}
                   className="inline-flex items-center gap-1 pl-2.5 pr-1.5 py-1 rounded-full bg-orange-50 text-orange-700 text-xs font-medium"
                 >
                   {city}
-                  <button
-                    type="button"
-                    onClick={() =>
+                  <span
+                    role="button"
+                    tabIndex={-1}
+                    onClick={(e) => {
+                      e.stopPropagation();
                       update(
                         "cities",
                         profile.cities.filter((c) => c !== city),
-                      )
-                    }
+                      );
+                    }}
                     className="text-orange-400 hover:text-orange-600"
                   >
                     <X size={12} />
-                  </button>
+                  </span>
                 </span>
               ))}
-              <input
-                value={cityInput}
-                onChange={(e) => setCityInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" || e.key === ",") {
-                    e.preventDefault();
-                    const value = cityInput.trim();
-                    if (value && !profile.cities.includes(value)) {
-                      update("cities", [...profile.cities, value]);
-                    }
-                    setCityInput("");
-                  } else if (
-                    e.key === "Backspace" &&
-                    !cityInput &&
-                    profile.cities.length > 0
-                  ) {
-                    update("cities", profile.cities.slice(0, -1));
-                  }
-                }}
-                placeholder={
-                  profile.cities.length === 0
-                    ? "Type a city and press Enter"
-                    : "Add another city"
-                }
-                className="flex-1 min-w-[140px] text-sm outline-none bg-transparent py-1"
+              <ChevronDown
+                size={13}
+                className={`ml-auto text-gray-400 transition-transform shrink-0 ${citiesMenuOpen ? "rotate-180" : ""}`}
               />
-            </div>
+            </button>
+            {citiesMenuOpen && (
+              <div className="absolute z-30 mt-1 w-full bg-white border border-gray-200 rounded-xl shadow-lg max-h-64 overflow-y-auto py-1">
+                {DUBAI_AREAS.map((city) => {
+                  const checked = profile.cities.includes(city);
+                  return (
+                    <label
+                      key={city}
+                      className="flex items-center gap-2 px-3 py-2 text-sm hover:bg-gray-50 cursor-pointer"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => {
+                          update(
+                            "cities",
+                            checked
+                              ? profile.cities.filter((c) => c !== city)
+                              : [...profile.cities, city],
+                          );
+                        }}
+                        className="rounded border-gray-300 text-orange-500 focus:ring-orange-400"
+                      />
+                      {city}
+                    </label>
+                  );
+                })}
+              </div>
+            )}
             <p className="text-xs text-gray-400 mt-1">
-              Press Enter or comma to add a city
+              Select one or more Dubai areas you provide services in
             </p>
           </div>
 
@@ -971,13 +1651,15 @@ export default function ProfilePage() {
           </label>
           <textarea
             value={profile.about ?? ""}
-            onChange={(e) => update("about", e.target.value)}
+            onChange={(e) => update("about", e.target.value.slice(0, 500))}
             rows={4}
             maxLength={500}
             className="w-full px-4 py-2.5 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-200 resize-none"
           />
-          <p className="text-xs text-gray-400 mt-1">
-            {profile.about?.length ?? 0} / 500
+          <p className={`text-xs mt-1 text-right ${
+            (profile.about ?? "").length >= 500 ? "text-red-500" : "text-gray-400"
+          }`}>
+            {(profile.about ?? "").length}/500 characters
           </p>
         </div>
       </SectionCard>
@@ -990,27 +1672,20 @@ export default function ProfilePage() {
               <Field
                 label="Trade License Number"
                 value={profile.tradeLicenseNumber ?? ""}
-                onChange={(v) => update("tradeLicenseNumber", v)}
+                icon={FileText}
+                readOnly
+              />
+              <DateField
+                label="Trade License Expiry"
+                value={profile.tradeLicenseExpiry?.slice(0, 10) ?? ""}
+                onChange={(v) => update("tradeLicenseExpiry", v)}
                 icon={FileText}
               />
-              <div>
-                <label className="text-xs font-medium text-gray-500 mb-1 block">
-                  Trade License Expiry
-                </label>
-                <input
-                  type="date"
-                  value={profile.tradeLicenseExpiry?.slice(0, 10) ?? ""}
-                  onChange={(e) => update("tradeLicenseExpiry", e.target.value)}
-                  className="w-full px-4 py-2.5 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-200 focus:border-orange-400"
-                />
-                {isDocExpired(profile.tradeLicenseExpiry) && (
-                  <p className="text-xs text-red-500 mt-1">Trade license has expired</p>
-                )}
-              </div>
               <FileUploadField
                 label="Trade License File"
                 fileUrl={profile.tradeLicenseFileUrl}
                 folder="vendor-docs"
+                maxSizeMb={3}
                 onUploaded={({ url, key }) => {
                   update("tradeLicenseFileUrl", url);
                   update("tradeLicenseFileKey", key);
@@ -1024,49 +1699,35 @@ export default function ProfilePage() {
             onChange={(v) => update("vatNumber", v)}
             icon={FileText}
           />
-          <Field
+          <SearchableSelectField
             label="Visa Type"
             value={profile.visaType ?? ""}
             onChange={(v) => update("visaType", v)}
             icon={Shield}
+            options={visaTypes}
+            placeholder="Select visa type"
           />
-          <div>
-            <label className="text-xs font-medium text-gray-500 mb-1 block">
-              Passport Expiry
-            </label>
-            <input
-              type="date"
-              value={profile.passportExpiry?.slice(0, 10) ?? ""}
-              onChange={(e) => update("passportExpiry", e.target.value)}
-              className="w-full px-4 py-2.5 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-200 focus:border-orange-400"
-            />
-            {isDocExpired(profile.passportExpiry) && (
-              <p className="text-xs text-red-500 mt-1">Passport has expired</p>
-            )}
-          </div>
+          <DateField
+            label="Passport Expiry"
+            value={profile.passportExpiry?.slice(0, 10) ?? ""}
+            onChange={(v) => update("passportExpiry", v)}
+          />
           <FileUploadField
             label="Passport File"
             fileUrl={profile.passportFileUrl}
             folder="vendor-docs"
+            maxSizeMb={3}
             onUploaded={({ url, key }) => {
               update("passportFileUrl", url);
               update("passportFileKey", key);
             }}
           />
-          <div>
-            <label className="text-xs font-medium text-gray-500 mb-1 block">
-              Emirates ID Expiry
-            </label>
-            <input
-              type="date"
-              value={profile.emiratesIdExpiry?.slice(0, 10) ?? ""}
-              onChange={(e) => update("emiratesIdExpiry", e.target.value)}
-              className="w-full px-4 py-2.5 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-200 focus:border-orange-400"
-            />
-            {isDocExpired(profile.emiratesIdExpiry) && (
-              <p className="text-xs text-red-500 mt-1">Emirates ID has expired</p>
-            )}
-          </div>
+          <DateField
+            label="Emirates ID Expiry"
+            value={profile.emiratesIdExpiry?.slice(0, 10) ?? ""}
+            onChange={(v) => update("emiratesIdExpiry", v)}
+            icon={BadgeCheck}
+          />
         </div>
       </SectionCard>
 
@@ -1082,21 +1743,29 @@ export default function ProfilePage() {
           <Field
             label="Commission %"
             value={profile.commissionPercent ?? ""}
-            onChange={(v) => update("commissionPercent", v)}
+            onChange={(v) => {
+              if (v === "") {
+                update("commissionPercent", "");
+                return;
+              }
+              const num = Math.min(100, Math.max(0, Number(v)));
+              update("commissionPercent", String(Number.isNaN(num) ? 0 : num));
+            }}
             type="number"
+            min="0"
+            max="100"
             icon={Percent}
           />
-          <Field
+          <DateField
             label="Plan Expiry"
             value={profile.planExpiry?.slice(0, 10) ?? ""}
             onChange={(v) => update("planExpiry", v)}
-            type="date"
-            icon={CalendarClock}
           />
           <FileUploadField
             label="Agreement File"
             fileUrl={profile.agreementFileUrl}
             folder="agreements"
+            maxSizeMb={5}
             onUploaded={({ url, key }) => {
               update("agreementFileUrl", url);
               update("agreementFileKey", key);
@@ -1138,12 +1807,24 @@ export default function ProfilePage() {
             onChange={(v) => update("swift", v)}
             icon={Globe}
           />
-          <Field
-            label="Branch Address"
-            value={profile.branchAddress ?? ""}
-            onChange={(v) => update("branchAddress", v)}
-            icon={MapPin}
-          />
+          <div className="sm:col-span-2">
+            <label className="text-xs font-medium text-gray-500 mb-1 block">
+              Branch Address
+            </label>
+            <div className="relative">
+              <MapPin
+                size={13}
+                className="absolute left-3 top-3 text-gray-400"
+              />
+              <textarea
+                value={profile.branchAddress ?? ""}
+                onChange={(e) => update("branchAddress", e.target.value)}
+                rows={3}
+                placeholder="Full branch address (street, area, city, PO box)"
+                className="w-full py-2.5 pl-9 pr-4 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-200 focus:border-orange-400 resize-none leading-relaxed"
+              />
+            </div>
+          </div>
         </div>
       </SectionCard>
 

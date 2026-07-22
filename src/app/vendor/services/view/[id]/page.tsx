@@ -149,6 +149,8 @@ export default function ServiceDetailPage() {
   const [mainImageError, setMainImageError] = useState(false);
   const [relatedPackages, setRelatedPackages] = useState<VendorPackage[]>([]);
   const [packagesLoading, setPackagesLoading] = useState(true);
+  const [currentSlide, setCurrentSlide] = useState(0);
+  const [isPaused, setIsPaused] = useState(false);
 
   useEffect(() => {
     if (!id) return;
@@ -159,11 +161,11 @@ export default function ServiceDetailPage() {
         setError(null);
 
         const data = await vendorApi.services.get<ApiService>(id);
-        
+
         const transformedService: Service = {
           ...data,
         };
-        
+
         setService(transformedService);
       } catch (err: unknown) {
         console.error('Error fetching service:', err);
@@ -247,6 +249,22 @@ export default function ServiceDetailPage() {
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [selectedImageIndex]);
+
+  // Auto-slide the main gallery image
+  useEffect(() => {
+    if (images.length <= 1 || isPaused || selectedImageIndex !== null) return;
+    const timer = setInterval(() => {
+      setCurrentSlide((prev) => (prev + 1) % images.length);
+    }, 3000);
+    return () => clearInterval(timer);
+  }, [images.length, isPaused, selectedImageIndex]);
+
+  // Keep currentSlide in range if images list shrinks/changes
+  useEffect(() => {
+    if (currentSlide >= images.length) {
+      setCurrentSlide(0);
+    }
+  }, [images.length, currentSlide]);
 
   if (loading) {
     return (
@@ -341,23 +359,69 @@ export default function ServiceDetailPage() {
             <p className="text-sm font-semibold text-gray-900 uppercase tracking-wide">Gallery</p>
             <span className="text-xs text-gray-400">({images.length} images)</span>
           </div>
-          
-          {/* Main Image */}
-          <div 
+
+          {/* Main Image - Auto Slider */}
+          <div
             className="relative aspect-video bg-gray-100 rounded-xl overflow-hidden cursor-pointer mb-4"
-            onClick={() => openLightbox(0)}
+            onClick={() => openLightbox(currentSlide)}
+            onMouseEnter={() => setIsPaused(true)}
+            onMouseLeave={() => setIsPaused(false)}
           >
-            <img
-              src={images[0]}
-              alt={service.title}
-              className="w-full h-full object-cover hover:scale-105 transition-transform duration-300"
-              onError={(e) => {
-                if (images[0] === service.image_url) {
-                  setMainImageError(true);
-                }
-                (e.target as HTMLImageElement).style.display = 'none';
-              }}
-            />
+            {images.map((image, index) => (
+              <img
+                key={index}
+                src={image}
+                alt={`${service.title} - ${index + 1}`}
+                className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-700 ease-in-out ${
+                  index === currentSlide ? 'opacity-100' : 'opacity-0'
+                }`}
+                onError={(e) => {
+                  if (image === service.image_url) {
+                    setMainImageError(true);
+                  }
+                }}
+              />
+            ))}
+
+            {/* Prev / Next arrows */}
+            {images.length > 1 && (
+              <>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setCurrentSlide((prev) => (prev - 1 + images.length) % images.length);
+                  }}
+                  className="absolute left-3 top-1/2 -translate-y-1/2 bg-black/40 hover:bg-black/60 text-white rounded-full p-1.5 transition-colors"
+                >
+                  <ChevronLeft size={20} />
+                </button>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setCurrentSlide((prev) => (prev + 1) % images.length);
+                  }}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 bg-black/40 hover:bg-black/60 text-white rounded-full p-1.5 transition-colors"
+                >
+                  <ChevronRight size={20} />
+                </button>
+
+                {/* Dots */}
+                <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex gap-1.5">
+                  {images.map((_, index) => (
+                    <button
+                      key={index}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setCurrentSlide(index);
+                      }}
+                      className={`h-1.5 rounded-full transition-all ${
+                        index === currentSlide ? 'w-5 bg-white' : 'w-1.5 bg-white/50'
+                      }`}
+                    />
+                  ))}
+                </div>
+              </>
+            )}
           </div>
 
           {/* Thumbnail Grid */}
@@ -366,8 +430,13 @@ export default function ServiceDetailPage() {
               {images.slice(1, 9).map((image, index) => (
                 <div
                   key={index}
-                  className="aspect-square bg-gray-100 rounded-lg overflow-hidden cursor-pointer hover:opacity-80 transition-opacity"
-                  onClick={() => openLightbox(index + 1)}
+                  className={`aspect-square bg-gray-100 rounded-lg overflow-hidden cursor-pointer hover:opacity-80 transition-opacity ${
+                    index + 1 === currentSlide ? 'ring-2 ring-orange-500' : ''
+                  }`}
+                  onClick={() => {
+                    setCurrentSlide(index + 1);
+                    openLightbox(index + 1);
+                  }}
                 >
                   <img
                     src={image}
@@ -406,7 +475,7 @@ export default function ServiceDetailPage() {
           >
             <X size={32} />
           </button>
-          
+
           {images.length > 1 && (
             <>
               <button
@@ -431,7 +500,7 @@ export default function ServiceDetailPage() {
               </button>
             </>
           )}
-          
+
           <div
             className="max-w-[90vw] max-h-[90vh]"
             onClick={(e) => e.stopPropagation()}
